@@ -57,7 +57,7 @@ def test_sale_appearing_is_not_a_move():
 
 def test_first_sold_out_seen_recorded_once_and_only_after_sales_open():
     s = State()
-    sold = match(status=Status(sold_out_label_seen=True))
+    sold = match(status=Status(sold_out_to="All STHs/1901 Club Members", sold_out_label_seen=True))
     observe(s, sold, at(10, 30), at(10, 20))  # before the first stage: a pre-sale label
     assert s.matches[sold.key].first_sold_out_seen is None
     observe(s, sold, at(10, 30), at(10, 30, 12))

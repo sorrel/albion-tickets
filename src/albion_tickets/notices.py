@@ -67,7 +67,8 @@ def _notes(m: Match, o: Outcome) -> str:
 
 
 def notices_for(m: Match, o: Outcome, points: int, now: datetime,
-                sale_seen: datetime | None, sold_out_seen: datetime | None) -> list[Notice]:
+                sale_seen: datetime | None, sold_out_seen: datetime | None,
+                problem_seen: datetime | None = None) -> list[Notice]:
     out: list[Notice] = []
     notes = _notes(m, o)
     seen = sale_seen or now
@@ -94,8 +95,9 @@ def notices_for(m: Match, o: Outcome, points: int, now: datetime,
                               f"🎟️ {m.opponent} exchange closes {_when(closes)}",
                               eve, eve + timedelta(minutes=15), [eve], notes))
     elif o.kind == "unreadable":
-        soonest = o.opens
-        out.append(check_this(f"check:{m.key}", m.url, f"{_fixture_name(m)} tickets", seen, soonest))
+        first = problem_seen or now
+        out.append(check_this(f"check:{m.key}", m.url, f"{_fixture_name(m)} tickets", first,
+                              first if o.urgent else None))
 
     if m.kickoff is not None:
         suffix = "" if m.kickoff_confirmed else " (time not confirmed)"

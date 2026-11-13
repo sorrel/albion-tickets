@@ -38,8 +38,14 @@ function run() {
     cal.events.push(ev);
   }
   ev.summary = req.title;
-  ev.startDate = new Date(req.start);
-  ev.endDate = new Date(req.end);
+  // Moving later: set the end first, so the start never passes the old end.
+  if (req.start >= ev.endDate().getTime()) {
+    ev.endDate = new Date(req.end);
+    ev.startDate = new Date(req.start);
+  } else {
+    ev.startDate = new Date(req.start);
+    ev.endDate = new Date(req.end);
+  }
   ev.description = req.notes;
   const old = ev.displayAlarms();
   for (let i = old.length - 1; i >= 0; i--) app.delete(old[i]);

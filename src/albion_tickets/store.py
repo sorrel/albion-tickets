@@ -26,6 +26,8 @@ class MatchRecord:
     kickoffs: list[tuple[str, str]] = field(default_factory=list)  # (kick-off, first seen)
     stage_opens: dict[str, str] = field(default_factory=dict)  # {"value": iso, "seen": iso}
     first_sold_out_seen: str | None = None
+    presale_sold_label: bool = False
+    first_problem: str | None = None
     last_seen: str = ""
     summary: dict = field(default_factory=dict)  # opponent, home, competition, url, outcome …
 
@@ -37,6 +39,7 @@ class State:
     events: dict[str, dict] = field(default_factory=dict)  # notice key → {uid, match, one_shot, …}
     dismissed: set[str] = field(default_factory=set)
     articles: dict[str, dict] = field(default_factory=dict)  # url → {title, published, matches}
+    failing_runs: int = 0
 
 
 @dataclass(frozen=True)
@@ -58,12 +61,15 @@ def load(path: Path) -> State:
                 kickoffs=[tuple(x) for x in v.get("kickoffs", [])],
                 stage_opens=v.get("stage_opens", {}),
                 first_sold_out_seen=v.get("first_sold_out_seen"),
+                presale_sold_label=v.get("presale_sold_label", False),
+                first_problem=v.get("first_problem"),
                 last_seen=v.get("last_seen", ""),
                 summary=v.get("summary", {}),
             ) for k, v in raw.get("matches", {}).items()},
             events=raw.get("events", {}),
             dismissed=set(raw.get("dismissed", [])),
             articles=raw.get("articles", {}),
+            failing_runs=raw.get("failing_runs", 0),
         )
     except (ValueError, TypeError, AttributeError) as exc:
         raise StateError(f"{path} is unreadable ({exc}); fix or move it aside — not resetting") from exc
@@ -77,6 +83,7 @@ def save(state: State, path: Path) -> None:
         "events": state.events,
         "dismissed": sorted(state.dismissed),
         "articles": state.articles,
+        "failing_runs": state.failing_runs,
     }
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, indent=1, sort_keys=True))
@@ -114,15 +121,19 @@ def observe(state: State, m: Match, outcome_opens: datetime | None, now: datetim
     if outcome_opens is not None:
         new = outcome_opens.isoformat()
         old = rec.stage_opens.get("value")
-        if old is not None and old != new:
+        live = (old is not None and datetime.fromisoformat(old) > now) or outcome_opens > now
+        if old is not None and old != new and live:
             changes.append(Change("sale_moved", m.key, old, new))
         if old != new:
             rec.stage_opens = {"value": new, "seen": stamp}
 
     st = m.status
     sold = st.sold_out_label_seen or st.wheelchair_only or st.sold_out_to is not None
-    if sold and rec.first_sold_out_seen is None and m.stages and now >= min(s.opens for s in m.stages):
-        rec.first_sold_out_seen = stamp
+    if sold and m.stages:
+        if now < min(s.opens for s in m.stages):
+            rec.presale_sold_label = True  # a label before sales: never trusted on its own
+        elif rec.first_sold_out_seen is None and (not rec.presale_sold_label or st.sold_out_to is not None):
+            rec.first_sold_out_seen = stamp
 
     rec.last_seen = stamp
     return changes

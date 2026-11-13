@@ -24,6 +24,7 @@ class Outcome:
     opens: datetime | None
     sold_out_stage: str | None = None
     pattern_note: str | None = None
+    urgent: bool = False  # for "unreadable": a stage line the user may need couldn't be read
 
 
 def _users_stage(stages: list[Stage], points: int) -> Stage | None:
@@ -67,7 +68,12 @@ def _sold_out_stage(m: Match, seen: datetime) -> Stage | None:
     return opened[-1] if opened else None
 
 
+_STH_LINE = re.compile(r"\bSTHs?\b|season ticket|1901", re.IGNORECASE)
+
+
 def decide(m: Match, points: int, now: datetime, first_sold_out_seen: datetime | None) -> Outcome:
+    if any(_STH_LINE.search(line) for line in m.unreadable):
+        return Outcome("unreadable", None, None, urgent=True)
     if not m.stages:
         return Outcome("unreadable", None, None)
     mine = _users_stage(m.stages, points)

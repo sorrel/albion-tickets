@@ -69,6 +69,26 @@ def parse_stages(text: str, match_day: date | None, published: date | None) -> t
     return stages, unreadable
 
 
+_SOLD_STRONG = re.compile(
+    r"sold out to|\bnow sold out|\b(has|have) (now )?(been )?sold out|^sold out\b|\bsold out\s*[-–—!.]?\s*$",
+    re.IGNORECASE,
+)
+_CONDITIONAL = re.compile(r"\b(if|when|should|may|might|once|whether)\b", re.IGNORECASE)
+
+
+def _sold_out_seen(text: str) -> bool:
+    """A line that *states* a sell-out — not boilerplate that merely mentions one."""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if "sold out" not in line.lower():
+            continue
+        if _SOLD_STRONG.search(line):
+            return True
+        if len(line) <= 80 and not _CONDITIONAL.search(line):
+            return True
+    return False
+
+
 _SOLD_OUT_TO = re.compile(r"sold out to\s+(.+?)\s*(?::|\.|$)", re.IGNORECASE | re.MULTILINE)
 _EXCHANGE = re.compile(r"resale[^\n]*?close[sd]?\s+on\s+([^\n]+)", re.IGNORECASE)
 
@@ -86,7 +106,7 @@ def parse_status(text: str, match_day: date | None, published: date | None) -> S
     return Status(
         sold_out_to=label,
         sold_out_min_points=int(pts.group(1)) if pts else None,
-        sold_out_label_seen=bool(re.search(r"\bsold\s+out\b", text, re.IGNORECASE)),
+        sold_out_label_seen=_sold_out_seen(text),
         wheelchair_only=bool(re.search(r"wheelchair\s+only", text, re.IGNORECASE)),
         exchange_closes=closes,
     )

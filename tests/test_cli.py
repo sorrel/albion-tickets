@@ -34,7 +34,7 @@ def test_points_rejects_negative(env):
 
 def test_check_dry_run_exit_zero_when_only_fetch_errors_are_absent(env, monkeypatch):
     run("points", "184")
-    monkeypatch.setattr(cli_mod, "make_fetcher", lambda: (lambda url: FetchResult(200, "", url, None)))
+    monkeypatch.setattr("albion_tickets.config.LISTING_PATHS", [])
     r = run("check", "--dry-run")
     assert r.exit_code == 0, r.output
     assert "dry run" in r.output.lower()

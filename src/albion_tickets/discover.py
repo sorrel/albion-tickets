@@ -23,6 +23,11 @@ class ArticleRef:
     published: date
 
 
+def article_count(listing_html: str) -> int:
+    """How many articles of any kind the listing holds (0 means the format changed)."""
+    return sum(1 for _ in _ITEM.finditer(listing_html))
+
+
 def ticket_articles(listing_html: str) -> list[ArticleRef]:
     found: dict[str, ArticleRef] = {}
     for m in _ITEM.finditer(listing_html):

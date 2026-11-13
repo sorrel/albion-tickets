@@ -34,6 +34,15 @@ def _allowed(url: str) -> bool:
     return parts.scheme == "https" and parts.hostname == config.ALLOWED_HOST
 
 
+class SameSiteRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow redirects only within the main website; refuse before requesting."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _allowed(newurl):
+            raise urllib.error.HTTPError(newurl, code, "redirect off the main website refused", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 _robots: urllib.robotparser.RobotFileParser | None = None
 
 
@@ -55,7 +64,7 @@ def fetch(url: str) -> FetchResult:
         return FetchResult(None, "", url, "host not allowed")
     if not robots_allows(url):
         return FetchResult(None, "", url, "disallowed by robots.txt")
-    opener = urllib.request.build_opener()
+    opener = urllib.request.build_opener(SameSiteRedirects())
     opener.addheaders = [("User-Agent", config.USER_AGENT)]
     try:
         with opener.open(url, timeout=config.REQUEST_TIMEOUT) as resp:

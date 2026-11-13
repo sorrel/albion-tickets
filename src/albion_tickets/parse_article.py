@@ -16,6 +16,11 @@ _DAY_NUM_END = re.compile(r"\b(mon|tue|wed|thu|fri|sat|sun)[a-z]*\s+\d{1,2}(st|n
 _KICKOFF_LINE = re.compile(r"kick[- ]?off", re.I)
 _POINTS = re.compile(r"points allocated for this fixture\s*:?\s*(\d+)", re.I)
 _UNCONFIRMED = re.compile(r"not yet confirmed|\bTBC\b|to be confirmed", re.I)
+_SUFFIX = re.compile(
+    r"\s*(?:[-–—|]\s*(?:sold out|updated?|tbc|postponed|rearranged|new (?:date|time))\b.*"
+    r"|\((?:sold out|updated?|tbc)\))\s*$",
+    re.IGNORECASE,
+)
 _ALBION = r"(?:Brighton\s*(?:&|and)\s*Hove\s+Albion|Albion)"
 
 
@@ -77,6 +82,7 @@ def _competition(text: str) -> str:
 
 def _heading(line: str, segment: str) -> tuple[str, bool] | None:
     """(opponent, home) from a match heading line, or None."""
+    line = _SUFFIX.sub("", line)
     if ":" in line or len(line) > 60:
         return None
     line = line.strip().rstrip(".")

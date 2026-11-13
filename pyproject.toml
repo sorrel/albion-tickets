@@ -1,0 +1,26 @@
+[project]
+name = "albion-tickets"
+version = "0.1.0"
+description = "Reminders for Brighton & Hove Albion away and cup ticket sales, from the club's public ticket news"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+# Standard library only at runtime, apart from Click for the CLI.
+dependencies = ["click>=8.0.0"]
+
+[project.scripts]
+albion = "albion_tickets.cli:cli"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/albion_tickets"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

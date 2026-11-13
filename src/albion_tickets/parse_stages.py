@@ -1,0 +1,92 @@
+"""Sale-stage lines and sell-out wording, as the club writes them."""
+from __future__ import annotations
+
+import re
+from datetime import date
+
+from .dates import at_london, parse_day_date, parse_time
+from .model import Audience, Stage, Status
+
+_AUDIENCE_WORDS = re.compile(
+    r"STH|Season Ticket|1901|MyAlbion|General Sale|Purchase History|Members?\b|Guests?",
+    re.IGNORECASE,
+)
+_DAY_WORD = re.compile(r"\b(mon|tue|wed|thu|fri|sat|sun)[a-z]*\b", re.IGNORECASE)
+_POINTS = re.compile(r"(\d+)\s*\+\s*(?:pts|points)?", re.IGNORECASE)
+
+
+def _audience(label: str) -> Audience:
+    low = label.lower()
+    if "guest" in low:
+        return "guests"
+    if re.search(r"\bsths?\b|season ticket|1901", low):
+        return "sth"
+    if "myalbion" in low:
+        return "myalbion"
+    if "general sale" in low:
+        return "general"
+    return "other"
+
+
+def _split(line: str) -> tuple[str, str] | None:
+    """Split a candidate stage line into (who, when), or None if it isn't one."""
+    day = _DAY_WORD.search(line)
+    if not day:
+        return None
+    if ":" in line[: day.start()]:
+        who, when = line.split(":", 1)
+    else:  # "Purchase History Thu 05 Nov 9am"
+        who, when = line[: day.start()], line[day.start():]
+    who = who.strip()
+    if not who or not _AUDIENCE_WORDS.search(who) or len(who) > 80:
+        return None
+    return who, when
+
+
+def parse_stages(text: str, match_day: date | None, published: date | None) -> tuple[list[Stage], list[str]]:
+    stages: list[Stage] = []
+    unreadable: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        parts = _split(line)
+        if parts is None:
+            continue
+        who, when = parts
+        d = parse_day_date(when, before=match_day, after=published)
+        if d is None:
+            unreadable.append(line)
+            continue
+        t, assumed = parse_time(when)
+        pts = _POINTS.search(who)
+        stages.append(Stage(
+            label=who.rstrip(" *").strip(),
+            audience=_audience(who),
+            min_points=int(pts.group(1)) if pts else None,
+            brackets_pending=who.rstrip().endswith("*"),
+            opens=at_london(d, t),
+            time_assumed=assumed,
+        ))
+    return stages, unreadable
+
+
+_SOLD_OUT_TO = re.compile(r"sold out to\s+(.+?)\s*(?::|\.|$)", re.IGNORECASE | re.MULTILINE)
+_EXCHANGE = re.compile(r"resale[^\n]*?close[sd]?\s+on\s+([^\n]+)", re.IGNORECASE)
+
+
+def parse_status(text: str, match_day: date | None, published: date | None) -> Status:
+    sold_to = _SOLD_OUT_TO.search(text)
+    label = sold_to.group(1).strip() if sold_to else None
+    pts = _POINTS.search(label) if label else None
+    closes = None
+    ex = _EXCHANGE.search(text)
+    if ex:
+        d = parse_day_date(ex.group(1), before=match_day, after=published)
+        if d is not None:
+            closes = at_london(d, parse_time(ex.group(1))[0])
+    return Status(
+        sold_out_to=label,
+        sold_out_min_points=int(pts.group(1)) if pts else None,
+        sold_out_label_seen=bool(re.search(r"\bsold\s+out\b", text, re.IGNORECASE)),
+        wheelchair_only=bool(re.search(r"wheelchair\s+only", text, re.IGNORECASE)),
+        exchange_closes=closes,
+    )

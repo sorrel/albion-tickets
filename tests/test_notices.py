@@ -114,3 +114,10 @@ def test_check_this_next_morning():
 def test_check_this_sooner_when_a_stage_opens_first():
     n = check_this("check:x", "https://u", "t", first_seen=at(11, 13, 20), soonest=at(11, 14, 8))
     assert n.start == at(11, 13, 20, 5)
+
+
+def test_sale_already_past_when_found_gets_no_alarm():
+    o = Outcome("sale", FRI, at(12, 4))
+    (sale,) = [n for n in notices_for(brentford(), o, 184, at(12, 4, 20), at(12, 4, 20), None)
+               if n.key.startswith("sale:")]
+    assert sale.alarms == []

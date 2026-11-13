@@ -26,6 +26,7 @@ class Article:
     published: date | None
     matches: list[Match]
     ignorable: bool
+    text: str = ""
 
 
 def article_text(html: str, slug: str) -> str | None:
@@ -133,7 +134,7 @@ def parse_text(text: str, url: str, title: str, published: date | None) -> Artic
         and re.search(r"premier league", text, re.I)
         and not re.search(r"\baway\b|visiting supporters", text, re.I)
     )
-    return Article(url, title, published, matches, ignorable)
+    return Article(url, title, published, matches, ignorable, text)
 
 
 def parse_article(html: str, url: str, today: date) -> Article | None:

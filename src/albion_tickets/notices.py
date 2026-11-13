@@ -45,6 +45,8 @@ def _where(m: Match) -> str:
 
 
 def _sale_alarms(opens: datetime, seen: datetime) -> list[datetime]:
+    if opens <= seen:  # already over when first found: nothing to warn about
+        return []
     wanted = [
         at_london(opens.date() - timedelta(days=1), time(19, 0)),
         opens.replace(hour=8, minute=30),

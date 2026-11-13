@@ -1,0 +1,128 @@
+"""Local state: points, what's been seen over time, and which calendar events exist.
+
+Everything lives under data/ (gitignored). A corrupt state file stops the run
+rather than being silently reset, which would duplicate every event.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Literal
+
+from .model import Match
+
+
+class StateError(Exception):
+    pass
+
+
+@dataclass
+class MatchRecord:
+    kickoffs: list[tuple[str, str]] = field(default_factory=list)  # (kick-off, first seen)
+    stage_opens: dict[str, str] = field(default_factory=dict)  # {"value": iso, "seen": iso}
+    first_sold_out_seen: str | None = None
+    last_seen: str = ""
+    summary: dict = field(default_factory=dict)  # opponent, home, competition, url, outcome …
+
+
+@dataclass
+class State:
+    points: int | None = None
+    matches: dict[str, MatchRecord] = field(default_factory=dict)
+    events: dict[str, dict] = field(default_factory=dict)  # notice key → {uid, match, one_shot, …}
+    dismissed: set[str] = field(default_factory=set)
+    articles: dict[str, dict] = field(default_factory=dict)  # url → {title, published, matches}
+
+
+@dataclass(frozen=True)
+class Change:
+    kind: Literal["kickoff_moved", "sale_moved"]
+    match_key: str
+    old: str
+    new: str
+
+
+def load(path: Path) -> State:
+    if not path.exists():
+        return State()
+    try:
+        raw = json.loads(path.read_text())
+        return State(
+            points=raw.get("points"),
+            matches={k: MatchRecord(
+                kickoffs=[tuple(x) for x in v.get("kickoffs", [])],
+                stage_opens=v.get("stage_opens", {}),
+                first_sold_out_seen=v.get("first_sold_out_seen"),
+                last_seen=v.get("last_seen", ""),
+                summary=v.get("summary", {}),
+            ) for k, v in raw.get("matches", {}).items()},
+            events=raw.get("events", {}),
+            dismissed=set(raw.get("dismissed", [])),
+            articles=raw.get("articles", {}),
+        )
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise StateError(f"{path} is unreadable ({exc}); fix or move it aside — not resetting") from exc
+
+
+def save(state: State, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "points": state.points,
+        "matches": {k: asdict(v) for k, v in state.matches.items()},
+        "events": state.events,
+        "dismissed": sorted(state.dismissed),
+        "articles": state.articles,
+    }
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=1, sort_keys=True))
+    os.replace(tmp, path)
+
+
+def snapshot(url: str, text: str, data_dir: Path, now: datetime) -> bool:
+    """Keep each distinct version of an article once. True if this one is new."""
+    norm = re.sub(r"\s+", " ", text).strip()
+    digest = hashlib.sha256(norm.encode()).hexdigest()
+    folder = data_dir / "snapshots"
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / f"{digest}.txt"
+    if target.exists():
+        return False
+    target.write_text(text)
+    with (folder / "index.jsonl").open("a") as f:
+        f.write(json.dumps({"url": url, "sha256": digest, "seen": now.isoformat()}) + "\n")
+    return True
+
+
+def observe(state: State, m: Match, outcome_opens: datetime | None, now: datetime) -> list[Change]:
+    rec = state.matches.setdefault(m.key, MatchRecord())
+    changes: list[Change] = []
+    stamp = now.isoformat()
+
+    if m.kickoff is not None:
+        ko = m.kickoff.isoformat()
+        if not rec.kickoffs:
+            rec.kickoffs.append((ko, stamp))
+        elif rec.kickoffs[-1][0] != ko:
+            changes.append(Change("kickoff_moved", m.key, rec.kickoffs[-1][0], ko))
+            rec.kickoffs.append((ko, stamp))
+
+    if outcome_opens is not None:
+        new = outcome_opens.isoformat()
+        old = rec.stage_opens.get("value")
+        if old is not None and old != new:
+            changes.append(Change("sale_moved", m.key, old, new))
+        if old != new:
+            rec.stage_opens = {"value": new, "seen": stamp}
+
+    st = m.status
+    sold = st.sold_out_label_seen or st.wheelchair_only or st.sold_out_to is not None
+    if sold and rec.first_sold_out_seen is None and m.stages and now >= min(s.opens for s in m.stages):
+        rec.first_sold_out_seen = stamp
+
+    rec.last_seen = stamp
+    return changes

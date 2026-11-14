@@ -58,8 +58,9 @@ def test_end_to_end_creates_sale_fixture_and_points_events(state_path):
     titles = {n.key.split(":")[0] + ":" + n.title for n in cal.events.values()}
     assert "fixture:Fulham v Albion" in titles
     assert "fixture:Tottenham Hotspur v Albion" in titles
-    assert any(t.startswith("sale:🎟️ Fulham away: your sale Fri 13 Nov 9am (All STHs/1901 Club Members") for t in titles)
-    assert any(t.startswith("points:Points for Fulham (") for t in titles)
+    # NOW is the evening of Fri 13 Nov: the Fulham and Spurs sales are over, and no points are due yet
+    assert not any(t.startswith("sale:") for t in titles)
+    assert not any(t.startswith("points:") for t in titles)
     assert not any("Newcastle" in t for t in titles)  # home Premier League: ignored
     assert any("manchester-united-ticket-information" in e for e in report.errors)  # 404 in this fixture set
     st = load(state_path)
@@ -163,3 +164,36 @@ def test_snapshot_of_article_text_written_on_real_run(state_path):
     snaps = list((state_path.parent / "snapshots").glob("*.txt"))
     assert any(s.read_text().startswith("Fulham v Albion") for s in snaps)
     assert all(len(s.read_text()) < 50_000 for s in snaps)  # the article, not the whole page
+
+
+def test_points_reminder_arrives_10_days_after_the_match(state_path):
+    cal = FakeCalendar()
+    run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
+    later = datetime(2027, 1, 5, 9, 0, tzinfo=TZ)  # Fulham away is Sat 26 Dec
+    run_check(cal, Fetcher(pages()), state_path, later, dry_run=False)
+    points = [n for n in cal.events.values() if n.key.startswith("points:")]
+    assert [n.title.split(" (")[0] for n in points] == ["Points for Fulham"]
+    assert points[0].start == later
+    again = list(cal.calls)
+    run_check(cal, Fetcher(pages()), state_path, later.replace(hour=11), dry_run=False)
+    assert cal.calls == again  # once only
+
+
+def test_home_league_article_is_read_once_then_left_alone(state_path):
+    newcastle = ART + "newcastle-united-sold-out-ticket-exchange-now-open"
+    f1 = Fetcher(pages())
+    run_check(FakeCalendar(), f1, state_path, NOW, dry_run=False)
+    assert newcastle in f1.urls
+    f2 = Fetcher(pages())
+    run_check(FakeCalendar(), f2, state_path, NOW.replace(hour=22), dry_run=False)
+    assert newcastle not in f2.urls
+
+
+def test_unreadable_article_is_listed_as_needing_a_look(state_path):
+    st = load(state_path)
+    st.articles[ART + "broken"] = {"title": "Leeds ticket information", "published": "2026-11-12", "matches": []}
+    save(st, state_path)
+    table = pages()
+    table[ART + "broken"] = "<html>nothing here</html>"
+    report = run_check(FakeCalendar(), Fetcher(table), state_path, NOW, dry_run=True)
+    assert report.needs_look == ["Leeds ticket information"]

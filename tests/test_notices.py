@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from albion_tickets.config import TZ
 from albion_tickets.model import Match, Stage, Status
-from albion_tickets.notices import change_notices, check_this, notices_for
+from albion_tickets.notices import change_notices, check_this, notices_for, points_due
 from albion_tickets.rules import Outcome
 from albion_tickets.store import Change
 
@@ -87,15 +87,31 @@ def test_fixture_unconfirmed_title():
     assert fx.start == at(1, 16, 15, y=2027) and fx.end == at(1, 16, 17, y=2027) and fx.alarms == []
 
 
-def test_points_upkeep_away_only():
+def test_match_notices_never_include_points():
     o = Outcome("sale", FRI, at(12, 4))
     away = kinds(notices_for(brentford(), o, 184, at(11, 13), at(11, 13), None))
-    # points reach the account about 10 days after the match
-    assert away["points"].start == at(1, 26, y=2027) and away["points"].alarms == []
-    assert away["points"].title == ("Points for Brentford (16 Jan) should be on your account now: "
-                                    "if you went (worth 5), run albion points <n>")
-    home = kinds(notices_for(brentford(home=True), o, 184, at(11, 13), at(11, 13), None))
-    assert "points" not in home
+    assert "points" not in away  # points come from points_due(), once they have landed
+
+
+def test_points_not_due_before_they_land():
+    assert points_due("k", "Brentford", at(1, 16, 15, y=2027), 5, now=at(1, 25, 20, y=2027)) is None
+
+
+def test_points_due_10_days_after_the_match():
+    n = points_due("k", "Brentford", at(1, 16, 15, y=2027), 5, now=at(1, 26, 9, y=2027))
+    assert n.key == "points:k" and n.one_shot
+    assert n.start == at(1, 26, y=2027) and n.alarms == [n.start]
+    assert n.title == ("Points for Brentford (16 Jan) should be on your account: "
+                       "if you went (worth 5), run albion points <n>")
+
+
+def test_points_found_late_go_in_soon_not_in_the_past():
+    n = points_due("k", "Brentford", at(1, 16, 15, y=2027), 5, now=at(1, 29, 13, y=2027))
+    assert n.start == at(1, 29, 13, 5, y=2027)
+
+
+def test_points_too_old_are_skipped():
+    assert points_due("k", "Brentford", at(1, 16, 15, y=2027), 5, now=at(2, 20, 9, y=2027)) is None
 
 
 def test_change_notice_is_one_shot_with_unique_key():
@@ -118,8 +134,19 @@ def test_check_this_sooner_when_a_stage_opens_first():
     assert n.start == at(11, 13, 20, 5)
 
 
-def test_sale_already_past_when_found_gets_no_alarm():
+def test_sale_already_past_when_found_is_left_out():
     o = Outcome("sale", FRI, at(12, 4))
-    (sale,) = [n for n in notices_for(brentford(), o, 184, at(12, 4, 20), at(12, 4, 20), None)
-               if n.key.startswith("sale:")]
-    assert sale.alarms == []
+    ns = kinds(notices_for(brentford(), o, 184, at(12, 4, 20), at(12, 4, 20), None))
+    assert "sale" not in ns and "fixture" in ns
+
+
+def test_sale_seen_before_it_opened_stays_after_it_passes():
+    o = Outcome("sale", FRI, at(12, 4))
+    ns = kinds(notices_for(brentford(), o, 184, at(12, 4, 20), at(11, 20), None))
+    assert "sale" in ns
+
+
+def test_sold_out_before_you_in_the_past_when_found_is_left_out():
+    o = Outcome("sold_out_before_you", FRI, at(12, 4), sold_out_stage="290+")
+    ns = kinds(notices_for(brentford(), o, 184, at(12, 4, 20), at(12, 4, 20), None))
+    assert "sale" not in ns

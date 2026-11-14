@@ -76,7 +76,10 @@ def notices_for(m: Match, o: Outcome, points: int, now: datetime,
     notes = _notes(m, o)
     seen = sale_seen or now
 
-    if o.kind in ("sale", "predicted_sale") and o.opens is not None:
+    over_when_found = o.opens is not None and o.opens <= seen  # nothing to remind about
+    if o.kind in ("sale", "predicted_sale", "sold_out_before_you") and over_when_found:
+        pass
+    elif o.kind in ("sale", "predicted_sale") and o.opens is not None:
         title = (f"🎟️ {m.opponent} {_where(m)}: your sale {_when(o.opens).rsplit(' ', 1)[0]} "
                  f"{_when(o.opens).rsplit(' ', 1)[1]} ({o.stage.label}, you have {points})")
         if o.kind == "predicted_sale":
@@ -106,15 +109,22 @@ def notices_for(m: Match, o: Outcome, points: int, now: datetime,
         suffix = "" if m.kickoff_confirmed else " (time not confirmed)"
         out.append(Notice(f"fixture:{m.key}", f"{_fixture_name(m)}{suffix}",
                           m.kickoff, m.kickoff + timedelta(hours=2), [], m.url))
-        if not m.home:
-            landed = at_london(m.kickoff.date() + POINTS_LAND_AFTER, time(9, 0))
-            worth = m.fixture_points if m.fixture_points is not None else "?"
-            played = f"{m.kickoff.day} {m.kickoff:%b}"
-            out.append(Notice(f"points:{m.key}",
-                              f"Points for {m.opponent} ({played}) should be on your account now: "
-                              f"if you went (worth {worth}), run albion points <n>",
-                              landed, landed + timedelta(minutes=15), [], ""))
     return out
+
+
+POINTS_STALE_AFTER = timedelta(days=14)  # a first run long after: don't nag about old matches
+
+
+def points_due(key: str, opponent: str, kickoff: datetime, worth: int | None,
+               now: datetime) -> Notice | None:
+    """'Update your points' once the club has credited them: never before."""
+    landed = at_london(kickoff.date() + POINTS_LAND_AFTER, time(9, 0))
+    if now < landed or now > landed + POINTS_STALE_AFTER:
+        return None
+    start = landed if now - landed < SOON else now + SOON
+    title = (f"Points for {opponent} ({kickoff.day} {kickoff:%b}) should be on your account: "
+             f"if you went (worth {worth if worth is not None else '?'}), run albion points <n>")
+    return Notice(f"points:{key}", title, start, start + timedelta(minutes=15), [start], "", one_shot=True)
 
 
 def change_notices(changes: list[Change], matches: dict[str, Match], now: datetime) -> list[Notice]:

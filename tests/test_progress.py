@@ -1,3 +1,5 @@
+import io
+import re
 import time
 
 from click.testing import CliRunner
@@ -17,45 +19,56 @@ def test_run_check_reports_each_slow_step(tmp_path, monkeypatch):
     save(State(points=184), p)
     lines = []
     run_check(FakeCalendar(), Fetcher(pages()), p, NOW, dry_run=False, progress=lines.append)
-    text = "\n".join(lines)
     assert lines[0].startswith("Checking the calendar")
-    assert "Reading the club's ticket news" in text
-    assert any(l.startswith("Found ") and "ticket articles" in l for l in lines)
+    assert "Reading the club's ticket news…" in lines
     reads = [l for l in lines if l.startswith("Reading article ")]
     assert reads and reads[0].startswith("Reading article 1/")
-    assert any("Fulham" in l and l.lstrip().startswith("Adding") for l in lines)
+    assert any(l.startswith("Updating the calendar 1/") for l in lines)
+    assert not any("Would add" in l or "Adding" in l for l in lines)  # status only, no event list
 
 
-def test_dry_run_progress_says_would(tmp_path, monkeypatch):
-    monkeypatch.setenv("ALBION_DATA_DIR", str(tmp_path))
-    p = tmp_path / "state.json"
-    save(State(points=184), p)
-    lines = []
-    run_check(FakeCalendar(), Fetcher(pages()), p, NOW, dry_run=True, progress=lines.append)
-    assert any(l.lstrip().startswith("Would add") for l in lines)
-    assert not any(l.lstrip().startswith("Adding") for l in lines)
+def test_status_line_overwrites_itself():
+    out = io.StringIO()
+    pr = Progress(out, quiet_after=60, width=200)
+    pr("Reading the club's ticket news…")
+    pr("Reading article 1/5…")
+    pr.close()
+    text = out.getvalue()
+    assert "\n" not in text
+    assert text.count("\r\x1b[K") == 3  # two updates, then cleared
+    assert text.endswith("\r\x1b[K")
 
 
-def test_heartbeat_speaks_up_during_silence():
-    out = []
-    pr = Progress(out.append, quiet_after=0.05)
+def test_status_line_is_cut_to_the_terminal_width():
+    out = io.StringIO()
+    pr = Progress(out, quiet_after=60, width=20)
+    pr("Reading article 1/5: a very long article title indeed…")
+    pr.close()
+    shown = out.getvalue().split("\r\x1b[K")[1]
+    assert len(shown) <= 19 and shown.endswith("…")
+
+
+def test_heartbeat_ticks_the_seconds_on_the_same_line():
+    out = io.StringIO()
+    pr = Progress(out, quiet_after=0.05, tick=0.05, width=200)
     try:
         pr("Reading the club's ticket news…")
         time.sleep(0.3)
     finally:
         pr.close()
-    assert out[0] == "Reading the club's ticket news…"
-    assert any("still" in l and "ticket news" in l for l in out[1:])
+    text = out.getvalue()
+    assert "\n" not in text
+    assert re.search(r"Reading the club's ticket news… \(\d+s\)", text)
 
 
 def test_heartbeat_stops_after_close():
-    out = []
-    pr = Progress(out.append, quiet_after=0.05)
+    out = io.StringIO()
+    pr = Progress(out, quiet_after=0.05, tick=0.05, width=200)
     pr("Working…")
     pr.close()
-    n = len(out)
+    n = len(out.getvalue())
     time.sleep(0.2)
-    assert len(out) == n
+    assert len(out.getvalue()) == n
 
 
 def test_cli_check_progress_flag_prints_steps(tmp_path, monkeypatch):
@@ -87,3 +100,26 @@ def test_report_lines_lead_with_the_event_date(tmp_path, monkeypatch):
     for line in report.created:
         assert re.match(r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2} [A-Z][a-z]{2} \d{2}:\d{2} · ", line), line
     assert any(l.endswith("· Fulham v Albion") for l in report.created)
+
+
+def _cli(tmp_path, monkeypatch, *args):
+    monkeypatch.setenv("ALBION_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(cli_mod, "make_calendar", FakeCalendar)
+    monkeypatch.setattr(cli_mod, "make_fetcher", lambda: Fetcher(pages()))
+    save(State(points=184), tmp_path / "state.json")
+    return CliRunner().invoke(cli_mod.cli, ["check", *args])
+
+
+def test_check_summary_is_a_few_lines(tmp_path, monkeypatch):
+    r = _cli(tmp_path, monkeypatch, "--dry-run")
+    out = r.stdout.splitlines()
+    assert out[0].startswith("Dry run: would add ") and "nothing written" in out[0]
+    assert out[1] == "No sales for you coming up yet."
+    assert len(out) <= 4
+    assert "manchester-united-ticket-information" in r.stderr  # a 404 in this fixture set: errors go to stderr
+    assert "Created" not in r.stdout and "Fulham v Albion" not in r.stdout
+
+
+def test_check_verbose_lists_every_event_with_its_date(tmp_path, monkeypatch):
+    r = _cli(tmp_path, monkeypatch, "--dry-run", "--verbose")
+    assert re.search(r"^  \w{3} 26 Dec 15:00 · Fulham v Albion$", r.stdout, re.M)

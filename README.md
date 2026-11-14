@@ -23,7 +23,10 @@ on the morning.
   - "ticket exchange open to you", only when a match sold out at a stage you
     qualify for;
   - "your points should have landed: update them" 10 days after each away
-    match (the club credits loyalty points about 10 days after the game);
+    match (the club credits loyalty points about 10 days after the game),
+    added only once that day comes;
+  - sales that were already over when first found are left out;
+  - articles about home league games are read once, then ignored;
   - "check this ticket article" when it can't read something, so a sale is
     never silently missed.
 
@@ -42,7 +45,7 @@ on the morning.
 
 | Command | What it does |
 |---|---|
-| `albion check [--dry-run] [--progress/--quiet]` | Read the news and update the calendar; progress lines go to the terminal (on by default there, off under launchd) |
+| `albion check [--dry-run] [-v]` | Read the news and update the calendar. Prints a short summary; `-v` lists every change with its date. A status line shows progress in a terminal (`--progress`/`--quiet` to override) |
 | `albion points <n>` | Set your loyalty points total |
 | `albion upcoming` | Tracked matches and your sale day for each |
 | `albion history` | Kick-off changes and sell-outs, match by match |

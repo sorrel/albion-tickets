@@ -20,7 +20,7 @@ from .calendar_app import Calendar, CalendarError
 from .discover import article_count, ticket_articles
 from .fetch import FetchResult
 from .model import Match
-from .notices import SOON, Notice, change_notices, check_this, notices_for
+from .notices import SOON, Notice, change_notices, check_this, notices_for, points_due
 from .parse_article import is_tracked, parse_article
 from .rules import decide
 from .store import State, load, observe, save, snapshot
@@ -37,6 +37,8 @@ class Report:
     removed: list[str] = field(default_factory=list)
     changes: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    next_sale: str | None = None
+    needs_look: list[str] = field(default_factory=list)
 
 
 def _fingerprint(n: Notice) -> str:
@@ -63,6 +65,8 @@ def _slug(url: str) -> str:
 
 
 def _active(info: dict, state: State, now: datetime) -> bool:
+    if info.get("untracked"):  # read once: only home league games, which the season ticket covers
+        return False
     keys = info.get("matches", [])
     if not keys:
         published = date.fromisoformat(info.get("published", now.date().isoformat()))
@@ -104,6 +108,8 @@ def run_check(cal: Calendar, fetcher: Callable[[str], FetchResult], state_path: 
         except Exception as exc:  # one broken article must not block the others
             report.errors.append(f"{_slug(url)}: {type(exc).__name__}: {exc}")
 
+    notices.extend(_points_due(state, now))
+
     state.failing_runs = state.failing_runs + 1 if report.errors else 0
     if state.failing_runs >= ATTENTION_AFTER:
         start = now + SOON
@@ -112,10 +118,28 @@ def run_check(cal: Calendar, fetcher: Callable[[str], FetchResult], state_path: 
                               start, start + timedelta(minutes=15), [start],
                               "\n".join(report.errors) + "\n\nRun: albion check", one_shot=True))
 
+    upcoming = sorted((n for n in notices if n.key.startswith("sale:") and n.alarms and n.start > now),
+                      key=lambda n: n.start)
+    report.next_sale = upcoming[0].title if upcoming else None
+    report.needs_look = [n.title.removeprefix("Check this ticket article: ")
+                         for n in notices if n.key.startswith("check:") and n.key not in state.dismissed]
     _sync(cal, state, notices, owners_ok, dry_run, report, progress)
     if not dry_run:
         save(state, state_path)
     return report
+
+
+def _points_due(state: State, now: datetime) -> list[Notice]:
+    out = []
+    for key, rec in state.matches.items():
+        s = rec.summary
+        if s.get("home", True) or not rec.kickoffs:
+            continue
+        n = points_due(key, s.get("opponent", key), datetime.fromisoformat(rec.kickoffs[-1][0]),
+                       s.get("worth"), now)
+        if n is not None:
+            out.append(n)
+    return out
 
 
 def _discover(state: State, fetcher, report: Report, progress: Callable[[str], None] = _silent) -> None:
@@ -127,10 +151,7 @@ def _discover(state: State, fetcher, report: Report, progress: Callable[[str], N
         if article_count(res.body) == 0:
             report.errors.append(f"listing {path}: no articles found (has the page format changed?)")
             continue
-        refs = ticket_articles(res.body)
-        new = sum(ref.url not in state.articles for ref in refs)
-        progress(f"Found {len(refs)} ticket articles ({new} new).")
-        for ref in refs:
+        for ref in ticket_articles(res.body):
             state.articles.setdefault(ref.url, {"title": ref.title, "published": ref.published.isoformat(),
                                                 "matches": []})
 
@@ -161,6 +182,8 @@ def _read_article(state: State, url: str, info: dict, fetcher, now: datetime, dr
         first = _dt(info.setdefault("dropped_seen", now.isoformat()))
         notices.append(check_this(check_key, url, article.title, first, None))
     info["matches"] = new_keys
+    if article.ignorable or (article.matches and not any(is_tracked(m) for m in article.matches)):
+        info["untracked"] = True
 
     for m in article.matches:
         if is_tracked(m):
@@ -185,6 +208,7 @@ def _match_notices(state: State, m: Match, now: datetime, report: Report) -> lis
         "opponent": m.opponent, "home": m.home, "competition": m.competition, "url": m.url,
         "kind": outcome.kind, "opens": outcome.opens.isoformat() if outcome.opens else None,
         "sold_out_stage": outcome.sold_out_stage, "kickoff_confirmed": m.kickoff_confirmed,
+        "worth": m.fixture_points,
     }
     for c in changes:
         report.changes.append(f"{m.opponent}: {c.kind.replace('_', ' ')} {c.old} → {c.new}")
@@ -209,26 +233,17 @@ def _owner(key: str, state: State) -> str:
 
 def _sync(cal: Calendar, state: State, notices: list[Notice], owners_ok: set[str],
           dry_run: bool, report: Report, progress: Callable[[str], None] = _silent) -> None:
-    progress("Updating the calendar…" if not dry_run else "Working out calendar changes…")
     notices = [n for n in notices if n.key not in state.dismissed]
     wanted = {n.key for n in notices}
+    to_write = []
     for n in notices:
         existing = state.events.get(n.key)
         fp = _fingerprint(n)
         if existing and (existing.get("fp") == fp or existing.get("one_shot")):
             continue
         (report.updated if existing else report.created).append(f"{_when(n.start)} · {n.title}")
-        verb = ("Would update" if dry_run else "Updating") if existing else ("Would add" if dry_run else "Adding")
-        progress(f"  {verb}: {n.title}")
-        if dry_run:
-            continue
-        try:
-            uid = cal.upsert(n, existing["uid"] if existing else None)
-        except CalendarError as exc:
-            report.errors.append(f"calendar: {n.key}: {exc}")
-            continue
-        state.events[n.key] = {"uid": uid, "owner": _owner(n.key, state), "one_shot": n.one_shot, "fp": fp,
-                               "start": n.start.isoformat(), "title": n.title}
+        to_write.append((n, existing, fp))
+    to_remove = []
     for key, ev in list(state.events.items()):
         owner = ev.get("owner")
         if key in wanted or ev.get("one_shot") or owner not in owners_ok:
@@ -236,9 +251,21 @@ def _sync(cal: Calendar, state: State, notices: list[Notice], owners_ok: set[str
         if f"check:{owner}" in wanted:  # something needs a look: keep what we had meanwhile
             continue
         report.removed.append(f"{_when(ev.get('start'))} · {ev.get('title', key)}")
-        progress(f"  {'Would remove' if dry_run else 'Removing'}: {ev.get('title', key)}")
-        if dry_run:
+        to_remove.append((key, ev))
+    if dry_run:
+        return
+    total = len(to_write) + len(to_remove)
+    for i, (n, existing, fp) in enumerate(to_write, 1):
+        progress(f"Updating the calendar {i}/{total}…")
+        try:
+            uid = cal.upsert(n, existing["uid"] if existing else None)
+        except CalendarError as exc:
+            report.errors.append(f"calendar: {n.key}: {exc}")
             continue
+        state.events[n.key] = {"uid": uid, "owner": _owner(n.key, state), "one_shot": n.one_shot, "fp": fp,
+                               "start": n.start.isoformat(), "title": n.title}
+    for i, (key, ev) in enumerate(to_remove, len(to_write) + 1):
+        progress(f"Updating the calendar {i}/{total}…")
         try:
             cal.remove(ev["uid"])
         except CalendarError as exc:

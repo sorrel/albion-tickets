@@ -1,44 +1,57 @@
-"""Progress lines for a person watching a check run.
+"""A single status line for a person watching a check run.
 
-Each step prints a line. If nothing has been printed for `quiet_after`
-seconds, a heartbeat says the current step is still going, so a slow fetch
-or a waiting Calendar.app is never silent for long.
+Each step overwrites the line. Once a step has run for `quiet_after`
+seconds, the line ticks its elapsed seconds, so a slow fetch or a waiting
+Calendar.app is visibly still alive. `close()` clears the line, leaving the
+terminal for the summary.
 """
 from __future__ import annotations
 
+import shutil
 import threading
 import time
-from typing import Callable
+from typing import TextIO
+
+CLEAR = "\r\x1b[K"
 
 
 class Progress:
-    def __init__(self, write: Callable[[str], None], quiet_after: float = 5.0) -> None:
-        self._write = write
+    def __init__(self, stream: TextIO, quiet_after: float = 2.0, tick: float = 1.0,
+                 width: int | None = None) -> None:
+        self._stream = stream
         self._quiet_after = quiet_after
+        self._tick = tick
+        self._width = width or shutil.get_terminal_size().columns
         self._lock = threading.Lock()
-        self._step = ""
-        self._step_started = time.monotonic()
-        self._last = time.monotonic()
+        self._message = ""
+        self._started = time.monotonic()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._beat, daemon=True)
         self._thread.start()
 
+    def _show(self, text: str) -> None:
+        limit = self._width - 1  # a wrapped line can't be overwritten
+        if len(text) > limit:
+            text = text[: limit - 1] + "…"
+        self._stream.write(CLEAR + text)
+        self._stream.flush()
+
     def __call__(self, message: str) -> None:
         with self._lock:
-            self._step = message.strip().rstrip("…").rstrip(".")
-            self._step_started = self._last = time.monotonic()
-            self._write(message)
+            self._message = message
+            self._started = time.monotonic()
+            self._show(message)
 
     def _beat(self) -> None:
-        while not self._stop.wait(self._quiet_after / 5):
+        while not self._stop.wait(self._tick):
             with self._lock:
-                now = time.monotonic()
-                if self._step and now - self._last >= self._quiet_after:
-                    waited = round(now - self._step_started)
-                    step = self._step[0].lower() + self._step[1:]
-                    self._write(f"  …still {step} ({waited}s)")
-                    self._last = now
+                waited = time.monotonic() - self._started
+                if self._message and waited >= self._quiet_after:
+                    self._show(f"{self._message} ({round(waited)}s)")
 
     def close(self) -> None:
         self._stop.set()
         self._thread.join()
+        with self._lock:
+            self._stream.write(CLEAR)
+            self._stream.flush()

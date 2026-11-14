@@ -46,32 +46,53 @@ def cli():
     """Reminders for Brighton & Hove Albion away and cup ticket sales."""
 
 
+def _count(n: int, word: str = "event") -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
 @cli.command()
 @click.option("--dry-run", is_flag=True, help="Show what would change; touch nothing.")
 @click.option("--progress/--quiet", "show_progress", default=None,
-              help="Print each step as it runs (default: only in a terminal).")
-def check(dry_run, show_progress):
+              help="Show a status line while it runs (default: only in a terminal).")
+@click.option("-v", "--verbose", is_flag=True, help="List every calendar change with its date.")
+def check(dry_run, show_progress, verbose):
     """Read the club's ticket news and update the calendar."""
     now = datetime.now(config.TZ)
     if show_progress is None:
         show_progress = sys.stderr.isatty()
-    progress = Progress(lambda line: click.echo(line, err=True)) if show_progress else None
+    progress = Progress(sys.stderr) if show_progress else None
     try:
         report = run_check(make_calendar(), make_fetcher(), _state_path(), now, dry_run,
                            **({"progress": progress} if progress else {}))
     finally:
         if progress:
             progress.close()
-    if dry_run:
-        click.echo("Dry run: nothing written.")
-    for label, items in [("Created", report.created), ("Updated", report.updated),
-                         ("Removed", report.removed), ("Changes", report.changes)]:
-        for item in items:
-            click.echo(f"{label}: {item}")
+
+    added, updated, removed = len(report.created), len(report.updated), len(report.removed)
+    if not (added or updated or removed):
+        click.echo("Dry run: calendar already up to date." if dry_run else "Calendar up to date.")
+    else:
+        parts = [p for p in (f"add {added}" if added else "", f"update {updated}" if updated else "",
+                             f"remove {removed}" if removed else "") if p]
+        if dry_run:
+            click.echo(f"Dry run: would {', '.join(parts)} {'event' if added + updated + removed == 1 else 'events'}"
+                       " (nothing written).")
+        else:
+            done = {"add": "added", "update": "updated", "remove": "removed"}
+            click.echo("Calendar: " + ", ".join(f"{done[p.split()[0]]} {p.split()[1]}" for p in parts) + ".")
+    click.echo(f"Next sale: {report.next_sale}" if report.next_sale else "No sales for you coming up yet.")
+    for change in report.changes:
+        click.echo(f"⚠️ {change}")
+    for title in report.needs_look:
+        click.echo(f"Needs a look: {title}")
+    if verbose:
+        for label, items in [("Add", report.created), ("Update", report.updated), ("Remove", report.removed)]:
+            if items:
+                click.echo(f"{label}:")
+                for item in items:
+                    click.echo(f"  {item}")
     for err in report.errors:
-        click.echo(f"Error: {err}", err=False)
-    if not any([report.created, report.updated, report.removed, report.changes, report.errors]):
-        click.echo("Nothing new.")
+        click.echo(f"Error: {err}", err=True)
     raise SystemExit(1 if report.errors else 0)
 
 

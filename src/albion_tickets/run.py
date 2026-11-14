@@ -121,7 +121,7 @@ def run_check(cal: Calendar, fetcher: Callable[[str], FetchResult], state_path: 
     upcoming = sorted((n for n in notices if n.key.startswith("sale:") and n.alarms and n.start > now),
                       key=lambda n: n.start)
     report.next_sale = upcoming[0].title if upcoming else None
-    report.needs_look = [n.title.removeprefix("Check this ticket article: ")
+    report.needs_look = [n.title.removeprefix("Check this ticket article: ") + (f" ({n.why})" if n.why else "")
                          for n in notices if n.key.startswith("check:") and n.key not in state.dismissed]
     _sync(cal, state, notices, owners_ok, dry_run, report, progress)
     if not dry_run:
@@ -168,7 +168,13 @@ def _read_article(state: State, url: str, info: dict, fetcher, now: datetime, dr
     article = parse_article(res.body, url, published)
     if article is None or (not article.matches and not article.ignorable):
         first = _dt(info.setdefault("first_problem", now.isoformat()))
-        notices.append(check_this(check_key, url, article.title if article else info["title"], first, None))
+        if article is None:
+            reason = "couldn't find the article text on the page"
+        else:
+            opening = next((l.strip() for l in article.text.splitlines() if l.strip()), "")
+            reason = f"couldn't tell which match it's about; it starts “{opening[:60]}”"
+        notices.append(check_this(check_key, url, article.title if article else info["title"], first, None,
+                                  reason))
         return
     info.pop("first_problem", None)
     if not dry_run:
@@ -180,7 +186,9 @@ def _read_article(state: State, url: str, info: dict, fetcher, now: datetime, dr
     if dropped or info.get("dropped"):
         info["dropped"] = sorted(set(info.get("dropped", [])) | dropped)
         first = _dt(info.setdefault("dropped_seen", now.isoformat()))
-        notices.append(check_this(check_key, url, article.title, first, None))
+        gone = [state.matches[k].summary.get("opponent", k) if k in state.matches else k for k in info["dropped"]]
+        notices.append(check_this(check_key, url, article.title, first, None,
+                                  f"{', '.join(gone)} no longer appears in it"))
     info["matches"] = new_keys
     if article.ignorable or (article.matches and not any(is_tracked(m) for m in article.matches)):
         info["untracked"] = True

@@ -196,4 +196,17 @@ def test_unreadable_article_is_listed_as_needing_a_look(state_path):
     table = pages()
     table[ART + "broken"] = "<html>nothing here</html>"
     report = run_check(FakeCalendar(), Fetcher(table), state_path, NOW, dry_run=True)
-    assert report.needs_look == ["Leeds ticket information"]
+    assert report.needs_look == ["Leeds ticket information (couldn't find the article text on the page)"]
+
+
+def test_article_without_a_match_heading_quotes_its_opening(state_path):
+    st = load(state_path)
+    st.articles[ART + "fulham-ticket-information"] = {"title": "Fulham ticket information",
+                                                      "published": "2026-11-12", "matches": []}
+    save(st, state_path)
+    table = pages()
+    table[ART + "fulham-ticket-information"] = table[ART + "fulham-ticket-information"].replace(
+        "Fulham v Albion", "Match: Fulham")
+    report = run_check(FakeCalendar(), Fetcher(table), state_path, NOW, dry_run=True)
+    (line,) = [l for l in report.needs_look if l.startswith("Fulham")]
+    assert line.startswith("Fulham ticket information (couldn't tell which match it's about; it starts “")

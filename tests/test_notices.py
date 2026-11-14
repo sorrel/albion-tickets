@@ -129,6 +129,22 @@ def test_check_this_next_morning():
     assert n.title == "Check this ticket article: Leeds ticket information"
 
 
+def test_check_this_carries_its_reason():
+    n = check_this("check:x", "https://u", "t", first_seen=at(11, 13, 20), soonest=None,
+                   reason="couldn't tell which match it's about")
+    assert n.why == "couldn't tell which match it's about"
+    assert n.notes.splitlines() == ["couldn't tell which match it's about", "https://u"]
+
+
+def test_unreadable_sale_line_is_quoted_in_the_reason():
+    o = Outcome("unreadable", None, None, urgent=True)
+    m = brentford()
+    m = Match(m.key, m.opponent, m.home, m.competition, m.kickoff, m.kickoff_confirmed, m.stages, m.status,
+              m.fixture_points, m.url, ["STHs w/ ??? Points: Tues 1 Dec"])
+    ns = kinds(notices_for(m, o, 184, at(11, 20), None, None, at(11, 20)))
+    assert ns["check"].why == "couldn't read a sale line: “STHs w/ ??? Points: Tues 1 Dec”"
+
+
 def test_check_this_sooner_when_a_stage_opens_first():
     n = check_this("check:x", "https://u", "t", first_seen=at(11, 13, 20), soonest=at(11, 14, 8))
     assert n.start == at(11, 13, 20, 5)

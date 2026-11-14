@@ -27,6 +27,7 @@ class Notice:
     alarms: list[datetime] = field(default_factory=list)
     notes: str = ""
     one_shot: bool = False
+    why: str = ""  # for "check this": what the tool couldn't make sense of
 
 
 def _when(dt: datetime) -> str:
@@ -102,8 +103,9 @@ def notices_for(m: Match, o: Outcome, points: int, now: datetime,
                               eve, eve + timedelta(minutes=15), [eve], notes))
     elif o.kind == "unreadable":
         first = problem_seen or now
+        reason = f"couldn't read a sale line: “{m.unreadable[0]}”" if m.unreadable else "found no sale dates in it"
         out.append(check_this(f"check:{m.key}", m.url, f"{_fixture_name(m)} tickets", first,
-                              first if o.urgent else None))
+                              first if o.urgent else None, reason))
 
     if m.kickoff is not None:
         suffix = "" if m.kickoff_confirmed else " (time not confirmed)"
@@ -139,8 +141,11 @@ def change_notices(changes: list[Change], matches: dict[str, Match], now: dateti
     return out
 
 
-def check_this(key: str, url: str, title: str, first_seen: datetime, soonest: datetime | None) -> Notice:
+def check_this(key: str, url: str, title: str, first_seen: datetime, soonest: datetime | None,
+               reason: str = "") -> Notice:
     start = at_london(first_seen.date() + timedelta(days=1), time(8, 30))
     if soonest is not None and soonest < start:
         start = first_seen + SOON
-    return Notice(key, f"Check this ticket article: {title}", start, start + timedelta(minutes=15), [start], url)
+    notes = f"{reason}\n{url}" if reason else url
+    return Notice(key, f"Check this ticket article: {title}", start, start + timedelta(minutes=15), [start],
+                  notes, why=reason)

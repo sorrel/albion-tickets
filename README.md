@@ -48,7 +48,7 @@ on the morning.
 | `albion check [--dry-run] [-v]` | Read the news and update the calendar. Prints a short summary; `-v` lists every change with its date. A status line shows progress in a terminal (`--progress`/`--quiet` to override) |
 | `albion points <n>` | Set your loyalty points total |
 | `albion upcoming` | Tracked matches and your sale day for each |
-| `albion history` | Kick-off changes and sell-outs, match by match |
+| `albion history` | Every tracked match: kick-off, points it is worth, each sale stage with its date (yours marked), sell-out and kick-off moves |
 | `albion dismiss <key>` | Clear a "check this" reminder |
 | `albion add <url>` | Track a ticket article older than the news listing shows |
 

@@ -129,17 +129,39 @@ def upcoming():
         click.echo(f"Needs a look: {k}  (albion dismiss {k})")
 
 
+def _stage_name(st: dict) -> str:
+    if st.get("min_points") is not None:
+        return f"STHs/1901 with {st['min_points']}+ points"
+    return st["label"] + (" (points brackets not announced yet)" if st.get("pending") else "")
+
+
 @cli.command()
 def history():
-    """Kick-off changes and sell-outs, match by match."""
+    """Every tracked match: sale stages, your stage, sell-out and kick-off changes."""
     state = _load()
-    for key, rec in state.matches.items():
+    recs = sorted(state.matches.values(), key=lambda r: r.kickoffs[-1][0] if r.kickoffs else "")
+    blocks = []
+    for rec in recs:
         s = rec.summary
-        click.echo(f"{s.get('opponent', key)} ({'home' if s.get('home') else 'away'}, {s.get('competition', '')})")
-        for ko, seen in rec.kickoffs:
-            click.echo(f"  kick-off {_fmt(ko)}  (seen {_fmt(seen)})")
+        where = "home" if s.get("home") else "away"
+        head = [f"{s.get('opponent', '?')} ({where})", s.get("competition", "")]
+        if rec.kickoffs:
+            head.append(_fmt(rec.kickoffs[-1][0]) + ("" if s.get("kickoff_confirmed", True) else " (not confirmed)"))
+        if s.get("worth") is not None:
+            head.append(f"worth {s['worth']} points")
+        lines = [" · ".join(h for h in head if h)]
+        for st in s.get("stages", []):
+            mine = "  ← your stage" if st["label"] == s.get("your_stage") else ""
+            lines.append(f"  {_fmt(st['opens'])}  {_stage_name(st)}{mine}")
         if s.get("sold_out_stage"):
-            click.echo(f"  sold out at {s['sold_out_stage']}")
+            noticed = f" (noticed {_fmt(rec.first_sold_out_seen)})" if rec.first_sold_out_seen else ""
+            lines.append(f"  Sold out at {s['sold_out_stage']}{noticed}")
+        else:
+            lines.append("  Sold out: not reported in the club's news")
+        for (old, _), (new, seen) in zip(rec.kickoffs, rec.kickoffs[1:]):
+            lines.append(f"  Kick-off moved: {_fmt(old)} → {_fmt(new)} (noticed {_fmt(seen)})")
+        blocks.append("\n".join(lines))
+    click.echo("\n\n".join(blocks) if blocks else "No matches tracked yet: run albion check.")
 
 
 @cli.command()

@@ -217,6 +217,9 @@ def _match_notices(state: State, m: Match, now: datetime, report: Report) -> lis
         "kind": outcome.kind, "opens": outcome.opens.isoformat() if outcome.opens else None,
         "sold_out_stage": outcome.sold_out_stage, "kickoff_confirmed": m.kickoff_confirmed,
         "worth": m.fixture_points,
+        "stages": [{"label": st.label, "opens": st.opens.isoformat(), "min_points": st.min_points,
+                    "pending": st.brackets_pending} for st in m.stages],
+        "your_stage": outcome.stage.label if outcome.stage else None,
     }
     for c in changes:
         report.changes.append(f"{m.opponent}: {c.kind.replace('_', ' ')} {c.old} → {c.new}")

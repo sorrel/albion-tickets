@@ -4,11 +4,13 @@ from __future__ import annotations
 from datetime import date, datetime
 
 import sys
+from pathlib import Path
 
 import click
 
 from . import config
 from .calendar_app import MacCalendar
+from .export import export as export_history
 from .fetch import polite_fetcher
 from .progress import Progress
 from .run import run_check
@@ -91,6 +93,13 @@ def check(dry_run, show_progress, verbose):
                 click.echo(f"{label}:")
                 for item in items:
                     click.echo(f"  {item}")
+    if not dry_run:
+        state = _load()
+        if state.export_dir:
+            try:
+                export_history(state, config.data_dir(), Path(state.export_dir))
+            except OSError as exc:
+                report.errors.append(f"export to {state.export_dir}: {exc}")
     for err in report.errors:
         click.echo(f"Error: {err}", err=True)
     raise SystemExit(1 if report.errors else 0)
@@ -271,6 +280,23 @@ def dismiss(key):
     state.dismissed.add(key)
     save(state, _state_path())
     click.echo(f"Dismissed {key}. It goes from the calendar at the next check.")
+
+
+@cli.command()
+@click.argument("folder", required=False, type=click.Path(file_okay=False, path_type=Path))
+def export(folder):
+    """Copy your history to FOLDER (remembered, and refreshed after every check)."""
+    state = _load()
+    if folder is None:
+        if not state.export_dir:
+            raise click.ClickException("No export folder yet: run albion export <folder> once.")
+        folder = Path(state.export_dir)
+    else:
+        folder = folder.expanduser().resolve()
+        state.export_dir = str(folder)
+        save(state, _state_path())
+    out = export_history(state, config.data_dir(), folder)
+    click.echo(f"History copied to {out}. It will be refreshed after every check.")
 
 
 @cli.command()

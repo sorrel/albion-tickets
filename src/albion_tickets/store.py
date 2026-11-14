@@ -9,8 +9,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -40,6 +41,7 @@ class State:
     dismissed: set[str] = field(default_factory=set)
     articles: dict[str, dict] = field(default_factory=dict)  # url → {title, published, matches}
     failing_runs: int = 0
+    export_dir: str | None = None  # where `albion export` copies the history after each check
 
 
 @dataclass(frozen=True)
@@ -70,13 +72,38 @@ def load(path: Path) -> State:
             dismissed=set(raw.get("dismissed", [])),
             articles=raw.get("articles", {}),
             failing_runs=raw.get("failing_runs", 0),
+            export_dir=raw.get("export_dir"),
         )
     except (ValueError, TypeError, AttributeError) as exc:
         raise StateError(f"{path} is unreadable ({exc}); fix or move it aside — not resetting") from exc
 
 
-def save(state: State, path: Path) -> None:
+KEEP_DAILY = 14
+
+
+def backup(path: Path, today: date) -> None:
+    """Before the day's first save, keep the state as it was: 14 days, plus the first of each month."""
+    if not path.exists():
+        return
+    folder = path.parent / "backups"
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / f"state-{today.isoformat()}.json"
+    if not target.exists():
+        shutil.copy2(path, target)
+    dated = sorted(folder.glob("state-????-??-??.json"))
+    keep = set(dated[-KEEP_DAILY:])
+    firsts: dict[str, Path] = {}
+    for f in dated:
+        firsts.setdefault(f.name[6:13], f)  # earliest file in each month
+    keep |= set(firsts.values())
+    for f in dated:
+        if f not in keep:
+            f.unlink()
+
+
+def save(state: State, path: Path, today: date | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    backup(path, today or date.today())
     data = {
         "points": state.points,
         "matches": {k: asdict(v) for k, v in state.matches.items()},
@@ -84,6 +111,7 @@ def save(state: State, path: Path) -> None:
         "dismissed": sorted(state.dismissed),
         "articles": state.articles,
         "failing_runs": state.failing_runs,
+        "export_dir": state.export_dir,
     }
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, indent=1, sort_keys=True))

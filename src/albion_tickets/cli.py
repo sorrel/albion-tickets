@@ -3,11 +3,14 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+import sys
+
 import click
 
 from . import config
 from .calendar_app import MacCalendar
 from .fetch import polite_fetcher
+from .progress import Progress
 from .run import run_check
 from .store import StateError, load, save
 
@@ -45,10 +48,20 @@ def cli():
 
 @cli.command()
 @click.option("--dry-run", is_flag=True, help="Show what would change; touch nothing.")
-def check(dry_run):
+@click.option("--progress/--quiet", "show_progress", default=None,
+              help="Print each step as it runs (default: only in a terminal).")
+def check(dry_run, show_progress):
     """Read the club's ticket news and update the calendar."""
     now = datetime.now(config.TZ)
-    report = run_check(make_calendar(), make_fetcher(), _state_path(), now, dry_run)
+    if show_progress is None:
+        show_progress = sys.stderr.isatty()
+    progress = Progress(lambda line: click.echo(line, err=True)) if show_progress else None
+    try:
+        report = run_check(make_calendar(), make_fetcher(), _state_path(), now, dry_run,
+                           **({"progress": progress} if progress else {}))
+    finally:
+        if progress:
+            progress.close()
     if dry_run:
         click.echo("Dry run: nothing written.")
     for label, items in [("Created", report.created), ("Updated", report.updated),

@@ -49,6 +49,15 @@ def _dt(iso: str | None) -> datetime | None:
     return datetime.fromisoformat(iso) if iso else None
 
 
+def _when(start: datetime | str | None) -> str:
+    if isinstance(start, str):
+        start = datetime.fromisoformat(start)
+    if start is None:
+        return "?"
+    start = start.astimezone(config.TZ)
+    return f"{start:%a} {start.day} {start:%b %H:%M}"
+
+
 def _slug(url: str) -> str:
     return urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1]
 
@@ -66,9 +75,14 @@ def _active(info: dict, state: State, now: datetime) -> bool:
     return False
 
 
+def _silent(_: str) -> None:
+    pass
+
+
 def run_check(cal: Calendar, fetcher: Callable[[str], FetchResult], state_path: Path,
-              now: datetime, dry_run: bool) -> Report:
+              now: datetime, dry_run: bool, progress: Callable[[str], None] = _silent) -> Report:
     report = Report()
+    progress("Checking the calendar is ready (macOS may ask to allow this)…")
     problem = cal.check_ready()
     if problem:
         report.errors.append(problem)
@@ -78,15 +92,17 @@ def run_check(cal: Calendar, fetcher: Callable[[str], FetchResult], state_path: 
         report.errors.append("Set your points first: albion points <n>")
         return report
 
-    _discover(state, fetcher, report)
+    progress("Reading the club's ticket news…")
+    _discover(state, fetcher, report, progress)
     notices: list[Notice] = []
     owners_ok: set[str] = set()
-    for url, info in list(state.articles.items()):
-        if _active(info, state, now):
-            try:
-                _read_article(state, url, info, fetcher, now, dry_run, notices, owners_ok, report)
-            except Exception as exc:  # one broken article must not block the others
-                report.errors.append(f"{_slug(url)}: {type(exc).__name__}: {exc}")
+    active = [(url, info) for url, info in list(state.articles.items()) if _active(info, state, now)]
+    for i, (url, info) in enumerate(active, 1):
+        progress(f"Reading article {i}/{len(active)}: {info.get('title') or _slug(url)}…")
+        try:
+            _read_article(state, url, info, fetcher, now, dry_run, notices, owners_ok, report)
+        except Exception as exc:  # one broken article must not block the others
+            report.errors.append(f"{_slug(url)}: {type(exc).__name__}: {exc}")
 
     state.failing_runs = state.failing_runs + 1 if report.errors else 0
     if state.failing_runs >= ATTENTION_AFTER:
@@ -96,13 +112,13 @@ def run_check(cal: Calendar, fetcher: Callable[[str], FetchResult], state_path: 
                               start, start + timedelta(minutes=15), [start],
                               "\n".join(report.errors) + "\n\nRun: albion check", one_shot=True))
 
-    _sync(cal, state, notices, owners_ok, dry_run, report)
+    _sync(cal, state, notices, owners_ok, dry_run, report, progress)
     if not dry_run:
         save(state, state_path)
     return report
 
 
-def _discover(state: State, fetcher, report: Report) -> None:
+def _discover(state: State, fetcher, report: Report, progress: Callable[[str], None] = _silent) -> None:
     for path in config.LISTING_PATHS:
         res = fetcher(config.BASE_URL + path)
         if not res.ok:
@@ -111,7 +127,10 @@ def _discover(state: State, fetcher, report: Report) -> None:
         if article_count(res.body) == 0:
             report.errors.append(f"listing {path}: no articles found (has the page format changed?)")
             continue
-        for ref in ticket_articles(res.body):
+        refs = ticket_articles(res.body)
+        new = sum(ref.url not in state.articles for ref in refs)
+        progress(f"Found {len(refs)} ticket articles ({new} new).")
+        for ref in refs:
             state.articles.setdefault(ref.url, {"title": ref.title, "published": ref.published.isoformat(),
                                                 "matches": []})
 
@@ -189,7 +208,8 @@ def _owner(key: str, state: State) -> str:
 
 
 def _sync(cal: Calendar, state: State, notices: list[Notice], owners_ok: set[str],
-          dry_run: bool, report: Report) -> None:
+          dry_run: bool, report: Report, progress: Callable[[str], None] = _silent) -> None:
+    progress("Updating the calendar…" if not dry_run else "Working out calendar changes…")
     notices = [n for n in notices if n.key not in state.dismissed]
     wanted = {n.key for n in notices}
     for n in notices:
@@ -197,7 +217,9 @@ def _sync(cal: Calendar, state: State, notices: list[Notice], owners_ok: set[str
         fp = _fingerprint(n)
         if existing and (existing.get("fp") == fp or existing.get("one_shot")):
             continue
-        (report.updated if existing else report.created).append(n.title)
+        (report.updated if existing else report.created).append(f"{_when(n.start)} · {n.title}")
+        verb = ("Would update" if dry_run else "Updating") if existing else ("Would add" if dry_run else "Adding")
+        progress(f"  {verb}: {n.title}")
         if dry_run:
             continue
         try:
@@ -213,7 +235,8 @@ def _sync(cal: Calendar, state: State, notices: list[Notice], owners_ok: set[str
             continue
         if f"check:{owner}" in wanted:  # something needs a look: keep what we had meanwhile
             continue
-        report.removed.append(ev.get("title", key))
+        report.removed.append(f"{_when(ev.get('start'))} · {ev.get('title', key)}")
+        progress(f"  {'Would remove' if dry_run else 'Removing'}: {ev.get('title', key)}")
         if dry_run:
             continue
         try:

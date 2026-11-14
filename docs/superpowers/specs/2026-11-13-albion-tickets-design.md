@@ -4,14 +4,12 @@ Date: 13 November 2026. Status: draft, awaiting approval.
 
 ## Why
 
-The user holds a Brighton & Hove Albion season ticket, so Premier League home
-matches are covered. Away matches and cup matches have to be bought, in sales
-released in stages by loyalty points. The user keeps **forgetting the sale
-day**, usually because they are busy at work. On 13 November 2026 they missed
-the Fulham away sale ("All STHs/1901 Club Members", Fri 13 Nov, 9am) for
-exactly this reason, and it then sold out.
+For a season-ticket holder, Premier League home matches are covered. Away
+matches and cup matches have to be bought, in sales released in stages by
+loyalty points, and it is easy to **forget the sale day**. Miss your morning
+and a popular away match is often gone.
 
-The tool exists so that never happens again: it tells the user, on their phone,
+The tool exists so that doesn't happen: it tells the user, on their phone,
 the evening before and the morning of every sale they can actually take part
 in.
 
@@ -100,8 +98,8 @@ so in the event.
 
 **User's stage.** Walk the stages in order and pick the first the user meets:
 `w/ N+ Points` if points ≥ N, otherwise `All STHs/1901 Club Members`. For home
-cup ties, the season-ticket-holder stage. With 184 points the user has, in
-every sale seen so far, fallen into the "All STHs/1901" stage.
+cup ties, the season-ticket-holder stage. A modest points total typically
+falls into the "All STHs/1901" stage.
 
 **The weekly pattern** (from the user). Away sales to STHs/1901 members run
 over one week:
@@ -123,7 +121,7 @@ start day, more or fewer brackets, a bank-holiday shift), follow what's
 published, and say in the event that the usual pattern doesn't apply.
 
 **Sold out before the user's stage.** Replace the sale reminder with a quiet,
-alert-free note ("Spurs sold out at 239+, you have 184").
+alert-free note ("Spurs sold out at 239+, you have 150").
 
 **Ticket exchange.** The exchange is open only to the stage the match sold out
 at and above. So:
@@ -168,10 +166,10 @@ time has passed when the label first appears after sales opened, unless a
 "Sold out to …" line names the stage outright, in which case that line wins.
 
 **Points upkeep.** Ten days after each away match (when the club credits the
-points, per the user, 14 Nov 2026), a "did you go? If so, update
+points), a "did you go? If so, update
 your points (this match was worth N)" event, with no alert, using the points
 figure published for the fixture. The user runs `albion points <n>`. Points
-also have to be entered when the tool is first set up (184 on 13 Nov 2026).
+also have to be entered when the tool is first set up.
 That figure goes only in local state, never in a tracked file.
 
 **"Check this" events** *(builder-check answer; Claude's call)*. They fire
@@ -199,7 +197,7 @@ announced.
 One dedicated calendar ("Albion tickets") in Calendar.app on an iCloud account,
 so events sync to the user's phone. Each sale event, at the stage time:
 
-- title like `🎟️ Fulham away: your sale 9am (All STHs/1901, you have 184)`;
+- title like `🎟️ Fulham away: your sale 9am (All STHs/1901, you have 150)`;
 - notes: all stages, the source link, when it was last checked;
 - alerts: 7pm the evening before, 8:30 on the day, 8:55 on the day.
 

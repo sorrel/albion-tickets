@@ -140,7 +140,7 @@
   - A sell-out without a known stage, or `unreadable` lines with no stages, gives `unreadable`.
   - "BUY" is never read at all.
 
-- [ ] **Step 1: Failing tests** (184 points throughout):
+- [ ] **Step 1: Failing tests** (a sample total of 184 points throughout):
   - `test_184_gets_friday_on_forest` (Fri 30 Oct 09:00);
   - `test_300_points_gets_tuesday`;
   - `test_brentford_predicted_friday` (STH pending stage Tue 1 Dec 2026 → `predicted_sale` Fri 4 Dec 09:00);
@@ -296,5 +296,5 @@
 - [ ] **Step 1: Failing test:** `test_plist_has_no_machine_paths_and_nine_slots`.
 - [ ] **Steps 2–4:** Run and expect FAIL, implement, then run and expect PASS.
 - [ ] **Step 5:** Run the whole suite with `uv run pytest -q`. Expect everything to pass.
-- [ ] **Step 6: With the user present:** `albion points 184`, then `albion check --dry-run`. Review the output together (expect Brentford predicted for Fri 4 Dec 09:00). Then do a real `albion check`, check the phone, and run `launchd/install.sh`.
+- [ ] **Step 6: With the user present:** `albion points <n>`, then `albion check --dry-run`. Review the output together (expect Brentford predicted for Fri 4 Dec 09:00). Then do a real `albion check`, check the phone, and run `launchd/install.sh`.
 - [ ] **Step 7:** Commit: `feat: launchd schedule and docs`. Merge to `main` when the user agrees. Creating a GitHub repo is a separate, outward-facing step, so ask first.

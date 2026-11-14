@@ -48,7 +48,7 @@ on the morning.
 | `albion check [--dry-run] [-v]` | Read the news and update the calendar. Prints a short summary; `-v` lists every change with its date. A status line shows progress in a terminal (`--progress`/`--quiet` to override) |
 | `albion points <n>` | Set your loyalty points total |
 | `albion upcoming` | Tracked matches and your sale day for each |
-| `albion history [--season 2025-26 | --all] [-v]` | A table per season: kick-off, match, points it is worth, the Tue/Wed/Thu points thresholds, your sale day and the sell-out tier, then any kick-off changes. `-v` adds every sale stage per match |
+| `albion history [--season 2025-26] [--all] [-v]` | A table per season: kick-off, match, points it is worth, the Tue/Wed/Thu points thresholds, your sale day and the sell-out tier, then any kick-off changes. `-v` adds every sale stage per match |
 | `albion dismiss <key>` | Clear a "check this" reminder |
 | `albion add <url>` | Track a ticket article older than the news listing shows |
 

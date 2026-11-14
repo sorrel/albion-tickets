@@ -120,27 +120,58 @@ def points(n):
     click.echo(f"Points set to {n}.")
 
 
+_KIND = {"sale": "", "predicted_sale": "expected", "sold_out_before_you": "sold out before you",
+         "exchange_open": "exchange", "unreadable": "check the article"}
+
+
 @cli.command()
 def upcoming():
     """Tracked matches and your sale day for each."""
     state = _load()
-    click.echo(f"You have {state.points if state.points is not None else '?'} points.")
     now = datetime.now(config.TZ)
-    rows = []
+    pts = state.points if state.points is not None else "?"
+    ahead, opened = [], []
     for key, rec in state.matches.items():
         ko = rec.kickoffs[-1][0] if rec.kickoffs else None
         if ko and datetime.fromisoformat(ko) < now:
             continue
         s = rec.summary
-        where = "away" if not s.get("home") else s.get("competition", "")
-        rows.append((s.get("opens") or ko or "", f"{s.get('opponent', key)} ({where})", ko, s))
-    for _, name, ko, s in sorted(rows, key=lambda r: r[0]):
-        confirmed = "" if s.get("kickoff_confirmed", True) else " (not confirmed)"
-        click.echo(f"{name}: kick-off {_fmt(ko)}{confirmed}; {s.get('kind', '?').replace('_', ' ')} "
-                   f"{_fmt(s.get('opens'))}" + (f"; sold out at {s['sold_out_stage']}" if s.get("sold_out_stage") else ""))
+        opens = s.get("opens")
+        notes = [_KIND.get(s.get("kind", ""), s.get("kind", "").replace("_", " "))]
+        if s.get("sold_out_stage"):
+            notes.append(f"sold out at {_tier(s['sold_out_stage'])}")
+        if not s.get("kickoff_confirmed", True):
+            notes.append("kick-off not confirmed")
+        comp = "" if not s.get("home") else _COMP.get(s.get("competition", ""), s.get("competition", ""))
+        row = (opens or ko or "", [
+            _fmt(opens),
+            f"{s.get('opponent', key)} ({'H' if s.get('home') else 'A'})" + (f" {comp}" if comp else ""),
+            _fmt(ko) + ("" if s.get("kickoff_confirmed", True) else "?"),
+            ", ".join(n for n in notes if n),
+        ])
+        (opened if opens and datetime.fromisoformat(opens) <= now else ahead).append(row)
+    title = lambda text: click.echo(click.style(text, fg="yellow", bold=True))
+    title(f"Sales coming up · you have {pts} points")
+    if ahead:
+        click.echo("\n".join(_table([r for _, r in sorted(ahead, key=lambda r: r[0])], _UPCOMING_HEADER)))
+    else:
+        click.echo("None yet: the next check will pick them up when the club announces them.")
+    if opened:
+        click.echo()
+        title("Sale already opened · match still to come")
+        click.echo("\n".join(_table([r for _, r in sorted(opened, key=lambda r: r[0])], _UPCOMING_HEADER)))
     checks = [k for k in state.events if k.startswith("check:")]
-    for k in checks:
-        click.echo(f"Needs a look: {k}  (albion dismiss {k})")
+    if checks:
+        click.echo()
+        title("Needs a look")
+        for k in checks:
+            click.echo(f"{k}  (albion dismiss {k})")
+    click.echo()
+    click.echo(f"Last checked {_fmt(state.last_check)}." if state.last_check
+               else "Not checked yet: run albion check.")
+
+
+_UPCOMING_HEADER = ["Your sale", "Match", "Kick-off", "Note"]
 
 
 def _stage_name(st: dict) -> str:
@@ -214,11 +245,11 @@ def _row(rec) -> list[str]:
 _HEADER = ["Kick-off", "Match", "Comp", "Worth", "Tue / Wed / Thu", "Your sale", "Sold out at"]
 
 
-def _table(rows: list[list[str]]) -> list[str]:
-    widths = [max(len(r[i]) for r in [_HEADER, *rows]) for i in range(len(_HEADER))]
+def _table(rows: list[list[str]], header: list[str] = _HEADER) -> list[str]:
+    widths = [max(len(r[i]) for r in [header, *rows]) for i in range(len(header))]
     fmt = lambda r: "  ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip()
     rule = "─" * len(fmt(["x" * w for w in widths]))
-    return [click.style(fmt(_HEADER), bold=True), rule, *(fmt(r) for r in rows)]
+    return [click.style(fmt(header), bold=True), rule, *(fmt(r) for r in rows)]
 
 
 def _detail(rec) -> list[str]:

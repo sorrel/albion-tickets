@@ -72,3 +72,33 @@ def test_add_accepts_only_main_site_articles(env):
 def test_history_runs(env):
     run("points", "184")
     assert run("history").exit_code == 0
+
+
+def _match(opponent, opens, kickoff):
+    from albion_tickets.store import MatchRecord
+    return MatchRecord(kickoffs=[(kickoff, kickoff)],
+                       summary={"opponent": opponent, "home": False, "kind": "sale", "opens": opens})
+
+
+def test_upcoming_separates_opened_sales_and_shows_last_check(env):
+    run("points", "184")
+    st = load(env / "state.json")
+    st.matches["a"] = _match("Already Open", "2000-01-07T09:00:00+00:00", "2099-01-01T15:00:00+00:00")
+    st.matches["b"] = _match("Still To Come", "2099-01-01T09:00:00+00:00", "2099-02-01T15:00:00+00:00")
+    st.matches["c"] = _match("Long Gone", "2000-01-01T09:00:00+00:00", "2000-01-08T15:00:00+00:00")
+    st.last_check = "2099-01-01T12:00:00+00:00"
+    save(st, env / "state.json")
+    out = run("upcoming").output
+    coming, _, opened = out.partition("Sale already opened")
+    assert "Still To Come" in coming and "Already Open" not in coming
+    assert "Already Open" in opened
+    assert "Long Gone" not in out
+    assert "Last checked Thu 1 Jan 12:00" in out
+
+
+def test_check_records_last_check(env, monkeypatch):
+    run("points", "184")
+    monkeypatch.setattr("albion_tickets.config.LISTING_PATHS", [])
+    run("check")
+    assert load(env / "state.json").last_check is not None
+    assert "Not checked yet" not in run("upcoming").output

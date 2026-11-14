@@ -125,6 +125,7 @@ def run_check(cal: Calendar, fetcher: Callable[[str], FetchResult], state_path: 
                          for n in notices if n.key.startswith("check:") and n.key not in state.dismissed]
     _sync(cal, state, notices, owners_ok, dry_run, report, progress)
     if not dry_run:
+        state.last_check = now.isoformat()
         save(state, state_path)
     return report
 

@@ -59,7 +59,7 @@ def test_end_to_end_creates_sale_fixture_and_points_events(state_path):
     assert "fixture:Fulham v Albion" in titles
     assert "fixture:Tottenham Hotspur v Albion" in titles
     assert any(t.startswith("sale:🎟️ Fulham away: your sale Fri 13 Nov 9am (All STHs/1901 Club Members") for t in titles)
-    assert any(t.startswith("points:Did you go to Fulham?") for t in titles)
+    assert any(t.startswith("points:Points for Fulham (") for t in titles)
     assert not any("Newcastle" in t for t in titles)  # home Premier League: ignored
     assert any("manchester-united-ticket-information" in e for e in report.errors)  # 404 in this fixture set
     st = load(state_path)

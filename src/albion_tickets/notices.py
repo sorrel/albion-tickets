@@ -66,6 +66,9 @@ def _notes(m: Match, o: Outcome) -> str:
     return "\n".join(lines)
 
 
+POINTS_LAND_AFTER = timedelta(days=10)  # the club credits loyalty points about 10 days after a match
+
+
 def notices_for(m: Match, o: Outcome, points: int, now: datetime,
                 sale_seen: datetime | None, sold_out_seen: datetime | None,
                 problem_seen: datetime | None = None) -> list[Notice]:
@@ -104,11 +107,13 @@ def notices_for(m: Match, o: Outcome, points: int, now: datetime,
         out.append(Notice(f"fixture:{m.key}", f"{_fixture_name(m)}{suffix}",
                           m.kickoff, m.kickoff + timedelta(hours=2), [], m.url))
         if not m.home:
-            day_after = at_london(m.kickoff.date() + timedelta(days=1), time(9, 0))
+            landed = at_london(m.kickoff.date() + POINTS_LAND_AFTER, time(9, 0))
             worth = m.fixture_points if m.fixture_points is not None else "?"
+            played = f"{m.kickoff.day} {m.kickoff:%b}"
             out.append(Notice(f"points:{m.key}",
-                              f"Did you go to {m.opponent}? If so, update your points (worth {worth}): albion points <n>",
-                              day_after, day_after + timedelta(minutes=15), [], ""))
+                              f"Points for {m.opponent} ({played}) should be on your account now: "
+                              f"if you went (worth {worth}), run albion points <n>",
+                              landed, landed + timedelta(minutes=15), [], ""))
     return out
 
 

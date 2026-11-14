@@ -167,7 +167,8 @@ as not on sale yet. The stage that sold out is the latest stage whose start
 time has passed when the label first appears after sales opened, unless a
 "Sold out to …" line names the stage outright, in which case that line wins.
 
-**Points upkeep.** The day after each away match, a "did you go? If so, update
+**Points upkeep.** Ten days after each away match (when the club credits the
+points, per the user, 14 Nov 2026), a "did you go? If so, update
 your points (this match was worth N)" event, with no alert, using the points
 figure published for the fixture. The user runs `albion points <n>`. Points
 also have to be entered when the tool is first set up (184 on 13 Nov 2026).

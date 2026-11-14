@@ -90,8 +90,10 @@ def test_fixture_unconfirmed_title():
 def test_points_upkeep_away_only():
     o = Outcome("sale", FRI, at(12, 4))
     away = kinds(notices_for(brentford(), o, 184, at(11, 13), at(11, 13), None))
-    assert away["points"].start == at(1, 17, y=2027) and away["points"].alarms == []
-    assert away["points"].title == "Did you go to Brentford? If so, update your points (worth 5): albion points <n>"
+    # points reach the account about 10 days after the match
+    assert away["points"].start == at(1, 26, y=2027) and away["points"].alarms == []
+    assert away["points"].title == ("Points for Brentford (16 Jan) should be on your account now: "
+                                    "if you went (worth 5), run albion points <n>")
     home = kinds(notices_for(brentford(home=True), o, 184, at(11, 13), at(11, 13), None))
     assert "points" not in home
 

@@ -115,3 +115,16 @@ def test_home_cup_tie_from_text():
             "UEFA Conference League: League Phase\nSeason Ticket Holders: Mon 16 Nov 9am")
     (m,) = parse_text(text, "u", "Monaco ticket information", date(2026, 11, 10)).matches
     assert m.home and m.opponent == "AS Monaco" and m.competition == "UEFA Conference League"
+
+
+def test_match_colon_layout_selling_only_to_members_and_guests_is_a_home_league_game():
+    a = parsed("manchester-united-ticket-information")
+    assert a.matches == [] and a.ignorable
+
+
+def test_match_colon_layout_with_a_season_ticket_stage_is_not_ignored():
+    text = ("Match: Fulham\nDate: Saturday 2 January, kick-off 12:30pm.\nOn sale dates:\n"
+            "STHs/1901 Club Members w/ 200+ Points: 9am, Tuesday 10 Nov\n")
+    from albion_tickets.parse_article import parse_text
+    a = parse_text(text, "https://u", "Fulham ticket information", date(2026, 11, 1))
+    assert not a.ignorable

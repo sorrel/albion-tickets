@@ -102,6 +102,27 @@ def _heading(line: str, segment: str) -> tuple[str, bool] | None:
     return None
 
 
+def _home_league_news(text: str) -> bool:
+    return bool(re.search(r"\bat the Amex\b", text, re.I)
+                and re.search(r"premier league", text, re.I)
+                and not re.search(r"\baway\b|visiting supporters", text, re.I))
+
+
+def _members_only_home_sale(text: str) -> bool:
+    """The 'Match: X / Date: …' layout the club uses for home league games.
+
+    Season-ticket holders already have their seat, so the only sales are to
+    members and to STHs' guests. Any stage for STHs themselves (a cup tie, or
+    an away sale) means it matters, so it is not ignored.
+    """
+    if not re.search(r"^\s*Match:\s*\S", text, re.M | re.I):
+        return False
+    if re.search(r"\baway\b|visiting supporters", text, re.I):
+        return False
+    sth_lines = [l for l in text.splitlines() if re.search(r"\bSTHs?\b|1901|season ticket", l, re.I)]
+    return all(re.search(r"guest", l, re.I) for l in sth_lines)
+
+
 def parse_text(text: str, url: str, title: str, published: date | None) -> Article:
     lines = _join_split_dates(text.splitlines())
     starts: list[int] = []
@@ -135,11 +156,7 @@ def parse_text(text: str, url: str, title: str, published: date | None) -> Artic
             url=url,
             unreadable=unreadable,
         ))
-    ignorable = not matches and bool(
-        re.search(r"\bat the Amex\b", text, re.I)
-        and re.search(r"premier league", text, re.I)
-        and not re.search(r"\baway\b|visiting supporters", text, re.I)
-    )
+    ignorable = not matches and (_home_league_news(text) or _members_only_home_sale(text))
     return Article(url, title, published, matches, ignorable, text)
 
 

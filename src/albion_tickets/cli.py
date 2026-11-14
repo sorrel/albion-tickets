@@ -44,8 +44,13 @@ def _fmt(iso: str | None) -> str:
 
 
 @click.group()
-def cli():
+@click.pass_context
+def cli(ctx):
     """Reminders for Brighton & Hove Albion away and cup ticket sales."""
+    # A blank line after every command's output, so the shell prompt doesn't
+    # butt up against it. A close callback also runs when a command exits
+    # via SystemExit (as `check` does).
+    ctx.call_on_close(click.echo)
 
 
 def _count(n: int, word: str = "event") -> str:

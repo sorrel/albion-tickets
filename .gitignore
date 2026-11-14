@@ -40,3 +40,6 @@ scratch/
 
 # --- Plan execution workspace ---
 .superpowers/
+
+# Stray temp folders from ad-hoc runs
+/tmp*/

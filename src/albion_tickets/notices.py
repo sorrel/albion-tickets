@@ -17,6 +17,9 @@ NOW_ALARM = timedelta(minutes=2)
 REMINDER_LENGTH = timedelta(minutes=15)
 POINTS_LAND_AFTER = timedelta(days=10)  # the club credits loyalty points about 10 days after a match
 POINTS_STALE_AFTER = timedelta(days=14)  # a first run long after: don't nag about old matches
+IMPORT_EVERY = timedelta(weeks=3)  # how often to save the ticket pages again
+IMPORT_NAG = timedelta(weeks=1)  # then again each week until it's done
+IMPORT_KEY = "import_due:ticket-pages"  # one event, moved along by each import
 
 
 @dataclass(frozen=True)
@@ -177,3 +180,21 @@ def check_this(key: str, url: str, title: str, first_seen: datetime, soonest: da
         start = first_seen + SOON
     return reminder(key, f"Check this ticket article: {title}", start, f"{reason}\n{url}" if reason else url,
                     why=reason)
+
+
+def import_due(last: datetime, now: datetime) -> datetime:
+    """When to suggest saving the ticket pages again: 7pm three weeks after the last
+    import, then a week later each time it passes undone (kept for a day after ringing)."""
+    due = at_london(last.date() + IMPORT_EVERY, time(19, 0))
+    while due + timedelta(days=1) < now:
+        due += IMPORT_NAG
+    return due
+
+
+def import_reminder(last: datetime, now: datetime) -> Notice:
+    """'Save the ticket pages and import them': sale dates appear there before the club's news."""
+    return reminder(IMPORT_KEY, "📄 Save the Away and Home ticket pages, then run albion import",
+                    import_due(last, now),
+                    "The ticket site lists sale dates before the club's news, and the tool never visits it.\n"
+                    "Save each page as a PDF in your browser, then:\n"
+                    "albion import ~/Desktop/Buy\\ Tickets*.pdf")

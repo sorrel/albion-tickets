@@ -12,8 +12,8 @@ from pathlib import Path
 
 from .calendar_app import Calendar
 from .model import Match, short_name
-from .notices import Notice
-from .records import FROM_PAGE, fixture_only, match_notices, rename, same_fixture, season_ticket
+from .notices import Notice, import_reminder
+from .records import FROM_PAGE, fixture_only, last_import, match_notices, rename, same_fixture, season_ticket
 from .rules import sold_out_text
 from .store import State, save
 from .sync import Progress, Report, begin, next_sale, silent, sync
@@ -32,6 +32,9 @@ def run_import(cal: Calendar, pages: list[PageResult], state_path: Path, now: da
         for m in page.matches:
             notices.extend(_import(state, m, now, report, retired))
     report.next_sale = next_sale(state, notices, now)
+    if not dry_run:
+        state.last_import = now.isoformat()
+    notices.append(import_reminder(last_import(state) or now, now))  # moved three weeks on
     sync(cal, state, notices, retired, dry_run, report, progress)
     if not dry_run:
         save(state, state_path)

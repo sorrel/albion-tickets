@@ -137,6 +137,14 @@ def points_reminders(state: State, now: datetime) -> list[Notice]:
     return [n for n in due if n is not None]
 
 
+def last_import(state: State) -> datetime | None:
+    """When ticket pages were last imported (before this was recorded: the imported matches say)."""
+    if state.last_import is None:
+        seen = [r.last_seen for r in state.matches.values() if r.summary.get("source") == "import" and r.last_seen]
+        state.last_import = max(seen, default=None)
+    return _dt(state.last_import)
+
+
 def same_fixture(state: State, m: Match) -> str | None:
     """The key of a recorded match on the same day, at the same end, as m."""
     if m.kickoff is None:

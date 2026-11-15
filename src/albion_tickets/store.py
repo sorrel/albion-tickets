@@ -85,6 +85,7 @@ class State:
     failing_runs: int = 0
     export_dir: str | None = None  # where `albion export` copies the history after each check
     last_check: str | None = None  # when a (non-dry) check last read the club's news
+    last_import: str | None = None  # when saved ticket pages were last imported (for the reminder)
     have_tickets: set[str] = field(default_factory=set)  # match keys: no sale reminders for these
     venues: dict[str, str] = field(default_factory=dict)  # opponent → ground, learnt from saved pages
 
@@ -129,6 +130,7 @@ def load(path: Path) -> State:
             failing_runs=raw.get("failing_runs", 0),
             export_dir=raw.get("export_dir"),
             last_check=raw.get("last_check"),
+            last_import=raw.get("last_import"),
             have_tickets=set(raw.get("have_tickets", [])),
             venues=raw.get("venues", {}),
         )
@@ -171,6 +173,7 @@ def save(state: State, path: Path, today: date | None = None) -> None:
         "failing_runs": state.failing_runs,
         "export_dir": state.export_dir,
         "last_check": state.last_check,
+        "last_import": state.last_import,
         "have_tickets": sorted(state.have_tickets),
         "venues": state.venues,
     }

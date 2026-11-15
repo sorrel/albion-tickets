@@ -48,6 +48,8 @@ seasons and slugs once (`match_key`, `season_of`, `url_slug`).
   `pdf_text.js`); `importing.run_import` adds matches with `source: import`. The
   club's news wins: import skips matches an article tracks, and
   `records.adopt_import` hands an imported match to its article by fixture day.
+  `state.last_import` drives one event (`IMPORT_KEY`) asking for fresh pages
+  three weeks on at 7pm, then weekly until done; each import moves it on.
 - **Records:** `MatchRecord.summary` is rebuilt every check. What only a saved
   page gives lives beside it: `page_sold_out` (the year-on-year sell-out
   level, read via `sold_out_at()`) and `venue`. `state.have_tickets`

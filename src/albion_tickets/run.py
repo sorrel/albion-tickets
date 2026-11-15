@@ -14,9 +14,9 @@ from .calendar_app import Calendar
 from .discover import FIXTURE_NEWS, TICKET_NEWS, article_count, articles
 from .fetch import FetchResult
 from .model import url_slug
-from .notices import Notice, alert, check_this
+from .notices import Notice, alert, check_this, import_reminder
 from .parse_article import article_text, is_tracked, parse_article
-from .records import KEEP_TRACKING, adopt_import, match_notices, points_reminders, refresh_fixtures
+from .records import KEEP_TRACKING, adopt_import, last_import, match_notices, points_reminders, refresh_fixtures
 from .store import State, save, snapshot
 from .sync import Progress, Report, begin, next_sale, silent, sync
 
@@ -46,6 +46,8 @@ def run_check(cal: Calendar, fetcher: Fetcher, state_path: Path, now: datetime, 
             report.errors.append(f"{url_slug(url)}: {type(exc).__name__}: {exc}")
 
     notices += refresh_fixtures(state, notices, owners_ok, now) + points_reminders(state, now)
+    if (imported := last_import(state)) is not None:
+        notices.append(import_reminder(imported, now))
     state.failing_runs = state.failing_runs + 1 if report.errors else 0
     if state.failing_runs >= ATTENTION_AFTER:
         notices.append(alert(f"attention:{now.date().isoformat()}",

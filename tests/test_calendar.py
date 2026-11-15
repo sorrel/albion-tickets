@@ -99,3 +99,37 @@ def test_calendar_script_never_touches_other_calendars():
     js = calendar_app.SCRIPT.read_text()
     assert "in another calendar: refusing to touch it" in js
     assert "calendarItemsWithExternalIdentifier" in js and "calendarIdentifier" in js
+
+
+class LostReply(FakeCalendar):
+    """Saves every event but, the first time, the reply never arrives (the run was cut short)."""
+
+    def __init__(self):
+        super().__init__()
+        self.lose = True
+
+    def apply(self, changes):
+        results = super().apply(changes)
+        if self.lose:
+            self.lose = False
+            return [CalendarError("the calendar did not finish within 150 s") for _ in results]
+        return results
+
+
+def test_a_lost_reply_never_leaves_a_duplicate(tmp_path, monkeypatch):
+    """The Hull bug: written, reply lost, rewritten with a new title → must still be one event."""
+    from dataclasses import replace
+
+    cal = LostReply()
+    [lost] = cal.apply([Change(None, F)])
+    assert isinstance(lost, CalendarError) and len(cal.events) == 1  # saved, but we never heard
+    uid = upsert(cal, replace(F, title="⚽ Fulham v Albion (time not confirmed)"), None)
+    assert list(cal.events) == [uid] and cal.events[uid].title.endswith("(time not confirmed)")
+
+
+def test_mac_sends_each_events_key(tmp_path):
+    seen = tmp_path / "seen.json"
+    cal = stand_in(tmp_path, f"open({str(seen)!r}, 'w').write(json.dumps(req))\n"
+                             "print(json.dumps({'ok': True, 'uid': 'id0'}), flush=True)\n")
+    cal.apply([Change(None, F)])
+    assert json.loads(seen.read_text())["ops"][0]["key"] == "fixture:k"

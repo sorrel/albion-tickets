@@ -25,7 +25,7 @@ class Section:
     lead: Row = lambda key, rec: []
     tail: Row = lambda key, rec: []
     style: Callable[[MatchRecord, datetime], dict] = lambda rec, now: {}
-    sort: Callable[[MatchRecord], str] = lambda rec: rec.kickoffs[-1][0] if rec.kickoffs else ""
+    sort: Callable[[MatchRecord], str] = lambda rec: rec.kickoff_iso
     empty: str | None = None  # shown when the section has no matches; None leaves it out
     footnote: Callable[[list[list[str]]], str | None] = lambda rows: None
 
@@ -85,7 +85,7 @@ def section_of(key: str, rec: MatchRecord, state: State, now: datetime) -> str:
 
 def _to_come(rec: MatchRecord, now: datetime) -> bool:
     """Not yet played: no date, a date ahead, or postponed (its old date may have passed)."""
-    return not rec.kickoffs or rec.news.get("postponed") or datetime.fromisoformat(rec.kickoffs[-1][0]) >= now
+    return rec.kickoff is None or rec.news.get("postponed") or rec.kickoff >= now
 
 
 def render(state: State, now: datetime) -> str:

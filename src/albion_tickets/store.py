@@ -41,6 +41,23 @@ class MatchRecord:
     def sold_out_at(self) -> str | None:
         return self.summary.get("sold_out_stage") or self.page_sold_out.get("label")
 
+    @property
+    def kickoff_iso(self) -> str:
+        """The latest kick-off seen ("" if none): also a sort key."""
+        return self.kickoffs[-1][0] if self.kickoffs else ""
+
+    @property
+    def kickoff(self) -> datetime | None:
+        return datetime.fromisoformat(self.kickoff_iso) if self.kickoffs else None
+
+    @property
+    def opponent(self) -> str:
+        return self.summary.get("opponent", "?")
+
+    @property
+    def home(self) -> bool:
+        return self.summary.get("home", False)
+
 
 @dataclass
 class State:
@@ -163,8 +180,8 @@ def observe(state: State, m: Match, outcome_opens: datetime | None, now: datetim
         ko = m.kickoff.isoformat()
         if not rec.kickoffs:
             rec.kickoffs.append((ko, stamp))
-        elif rec.kickoffs[-1][0] != ko:
-            changes.append(Change("kickoff_moved", m.key, rec.kickoffs[-1][0], ko))
+        elif rec.kickoff_iso != ko:
+            changes.append(Change("kickoff_moved", m.key, rec.kickoff_iso, ko))
             rec.kickoffs.append((ko, stamp))
 
     if outcome_opens is not None:
@@ -177,8 +194,7 @@ def observe(state: State, m: Match, outcome_opens: datetime | None, now: datetim
             rec.stage_opens = {"value": new, "seen": stamp}
 
     st = m.status
-    sold = st.sold_out_label_seen or st.wheelchair_only or st.sold_out_to is not None
-    if sold and m.stages:
+    if st.sold and m.stages:
         if now < min(s.opens for s in m.stages):
             rec.presale_sold_label = True  # a label before sales: never trusted on its own
         elif rec.first_sold_out_seen is None and (not rec.presale_sold_label or st.sold_out_to is not None):

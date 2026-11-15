@@ -2,6 +2,7 @@
 from datetime import date, datetime
 
 import sys
+from itertools import pairwise
 from pathlib import Path
 
 import click
@@ -12,6 +13,7 @@ from .calendar_app import remove as remove_event
 from .display import comp, day, table, when
 from .export import export as export_history
 from .fetch import polite_fetcher
+from .model import season_of, short_name
 from .progress import Progress
 from .rules import decide, sold_out_text
 from .run import run_check, run_import
@@ -140,11 +142,6 @@ def _today() -> date:
     return datetime.now(config.TZ).date()
 
 
-def _season_of(d: date) -> str:
-    start = d.year if d.month >= 8 else d.year - 1
-    return f"{start}-{(start + 1) % 100:02d}"
-
-
 def _season_label(season: str) -> str:
     return season.replace("-", "–")
 
@@ -179,10 +176,9 @@ def _row(rec) -> list[str]:
     else:
         thresholds = "—"
     yours = next((st for st in stages if st["label"] == s.get("your_stage")), None)
-    ko = rec.kickoffs[-1][0] if rec.kickoffs else None
     return [
-        when(ko) + ("" if s.get("kickoff_confirmed", True) else "?"),
-        f"{s.get('opponent', '?')} ({'H' if s.get('home') else 'A'})",
+        when(rec.kickoff) + ("" if s.get("kickoff_confirmed", True) else "?"),
+        short_name(rec.opponent, rec.home),
         comp(s.get("competition", "")),
         str(s["worth"]) if s.get("worth") is not None else "—",
         thresholds,
@@ -216,7 +212,7 @@ def history(season, show_all, verbose):
     if show_all:
         seasons = sorted(by_season)
     else:
-        wanted = season or _season_of(_today())
+        wanted = season or season_of(_today())
         if wanted not in by_season and not season and by_season:
             wanted = max(by_season)  # nothing yet this season: show the latest there is
         seasons = [wanted]
@@ -225,18 +221,18 @@ def history(season, show_all, verbose):
         return
     out: list[str] = []
     for sn in seasons:
-        recs = sorted(by_season.get(sn, []), key=lambda r: r.kickoffs[-1][0] if r.kickoffs else "")
+        recs = sorted(by_season.get(sn, []), key=lambda r: r.kickoff_iso)
         if out:
             out.append("")
         if not recs:
             out.append(f"No matches recorded for {_season_label(sn)}.")
             continue
-        current = sn == _season_of(_today())
+        current = sn == season_of(_today())
         pts = f" · you have {state.points} points" if current and state.points is not None else ""
         out.append(click.style(f"{_season_label(sn)} season{pts}", fg="yellow", bold=True))
         out.append(table([_row(r) for r in recs], _HEADER))
         moves = [f"{r.summary.get('opponent', '?')} kick-off moved: {when(old)} → {when(new)} (noticed {when(seen)})"
-                 for r in recs for (old, _), (new, seen) in zip(r.kickoffs, r.kickoffs[1:])]
+                 for r in recs for (old, _), (new, seen) in pairwise(r.kickoffs)]
         if moves:
             out.append("")
             out.append(click.style("Kick-off changes", fg="yellow", bold=True))
@@ -357,7 +353,7 @@ def import_(files, dry_run, show_progress):
                 note = "predicted: brackets not announced"
             else:
                 note = _KIND.get(outcome.kind, outcome.kind.replace("_", " "))
-            rows.append((ko or "", [when(opens), f"{m.opponent} ({'H' if m.home else 'A'})", when(ko), note]))
+            rows.append((ko or "", [when(opens), short_name(m.opponent, m.home), when(ko), note]))
     heading = "Would import" if dry_run else "Imported"
     click.echo(click.style(f"{heading} · {len(rows)} {'match' if len(rows) == 1 else 'matches'}",
                            fg="yellow", bold=True))
@@ -395,7 +391,7 @@ def _find_match(state, query: str) -> str:
     q = query.lower()
     hits = [k for k, rec in state.matches.items()
             if q in rec.summary.get("opponent", k).lower()
-            and not (rec.kickoffs and datetime.fromisoformat(rec.kickoffs[-1][0]) < now)]
+            and not (rec.kickoff and rec.kickoff < now)]
     if not hits:
         raise click.ClickException(f"No upcoming match matches “{query}”. See albion upcoming.")
     if len(hits) > 1:

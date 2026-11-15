@@ -11,14 +11,14 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from collections.abc import Callable
-from urllib.parse import urlsplit
 
 from . import config
 from .calendar_app import Calendar, CalendarError, Change
 from . import news_updates
 from .discover import FIXTURE_NEWS, TICKET_NEWS, article_count, articles
 from .fetch import FetchResult
-from .model import Match, Status
+from .display import when
+from .model import Match, Status, short_name, url_slug
 from .notices import SOON, Notice, change_notices, check_this, notices_for, points_due
 from .parse_article import article_text, is_tracked, parse_article
 from .rules import Outcome, decide, sold_out_text
@@ -58,19 +58,6 @@ def _dt(iso: str | None) -> datetime | None:
     return datetime.fromisoformat(iso) if iso else None
 
 
-def _when(start: datetime | str | None) -> str:
-    if isinstance(start, str):
-        start = datetime.fromisoformat(start)
-    if start is None:
-        return "?"
-    start = start.astimezone(config.TZ)
-    return f"{start:%a} {start:%d %b %H:%M}"
-
-
-def _slug(url: str) -> str:
-    return urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1]
-
-
 def _active(info: dict, state: State, now: datetime) -> bool:
     if info.get("kind") == "fixture":
         return news_updates.due(info, now)
@@ -80,12 +67,8 @@ def _active(info: dict, state: State, now: datetime) -> bool:
     if not keys:
         published = date.fromisoformat(info.get("published", now.date().isoformat()))
         return now.date() - published <= FORGET_EMPTY_ARTICLE
-    for k in keys:
-        rec = state.matches.get(k)
-        latest = _dt(rec.kickoffs[-1][0]) if rec and rec.kickoffs else None
-        if latest is None or latest + KEEP_TRACKING >= now:
-            return True
-    return False
+    recs = [state.matches.get(k) for k in keys]
+    return any(r is None or r.kickoff is None or r.kickoff + KEEP_TRACKING >= now for r in recs)
 
 
 def _silent(_: str) -> None:
@@ -112,12 +95,12 @@ def run_check(cal: Calendar, fetcher: Callable[[str], FetchResult], state_path: 
     active = [(url, info) for url, info in list(state.articles.items()) if _active(info, state, now)]
     active.sort(key=lambda a: a[1].get("kind") != "fixture")  # fixture news first: ticket articles defer to it
     for i, (url, info) in enumerate(active, 1):
-        progress(f"Reading article {i}/{len(active)}: {info.get('title') or _slug(url)}…")
+        progress(f"Reading article {i}/{len(active)}: {info.get('title') or url_slug(url)}…")
         try:
             read = _read_fixture_news if info.get("kind") == "fixture" else _read_article
             read(state, url, info, fetcher, now, dry_run, notices, owners_ok, report)
         except Exception as exc:  # one broken article must not block the others
-            report.errors.append(f"{_slug(url)}: {type(exc).__name__}: {exc}")
+            report.errors.append(f"{url_slug(url)}: {type(exc).__name__}: {exc}")
 
     notices.extend(_refresh_fixtures(state, notices, owners_ok, now))
     notices.extend(_points_due(state, now))
@@ -159,7 +142,7 @@ def _refresh_fixtures(state: State, notices: list[Notice], owners_ok: set[str], 
             continue
         if fixture not in state.events and not from_page:
             continue
-        kickoff = datetime.fromisoformat(rec.kickoffs[-1][0])
+        kickoff = rec.kickoff
         if kickoff + KEEP_TRACKING < now:
             continue
         s = rec.summary
@@ -178,8 +161,7 @@ def _points_due(state: State, now: datetime) -> list[Notice]:
         s = rec.summary
         if s.get("home", True) or not rec.kickoffs:
             continue
-        n = points_due(key, s.get("opponent", key), datetime.fromisoformat(rec.kickoffs[-1][0]),
-                       s.get("worth"), now)
+        n = points_due(key, rec.opponent, rec.kickoff, s.get("worth"), now)
         if n is not None:
             out.append(n)
     return out
@@ -205,12 +187,12 @@ def _read_fixture_news(state: State, url: str, info: dict, fetcher, now: datetim
     """A Fixture News article: moves, postponements and draws, recorded on the matches."""
     res = fetcher(url)
     if not res.ok:
-        report.errors.append(f"{_slug(url)}: {res.error or res.status}")
+        report.errors.append(f"{url_slug(url)}: {res.error or res.status}")
         return
-    text = article_text(res.body, _slug(url))
+    text = article_text(res.body, url_slug(url))
     if text is None:
         first = _dt(info.setdefault("first_problem", now.isoformat()))
-        notices.append(check_this(f"check:{_slug(url)}", url, info["title"], first, None,
+        notices.append(check_this(f"check:{url_slug(url)}", url, info["title"], first, None,
                                   "couldn't find the article text on the page"))
         return
     notices.extend(news_updates.apply(state, url, info, text, now, report.changes))
@@ -220,10 +202,10 @@ def _read_article(state: State, url: str, info: dict, fetcher, now: datetime, dr
                   notices: list[Notice], owners_ok: set[str], report: Report) -> None:
     res = fetcher(url)
     if not res.ok:
-        report.errors.append(f"{_slug(url)}: {res.error or res.status}")
+        report.errors.append(f"{url_slug(url)}: {res.error or res.status}")
         return
     owners_ok.add(url)
-    check_key = f"check:{_slug(url)}"
+    check_key = f"check:{url_slug(url)}"
     published = date.fromisoformat(info["published"])
     article = parse_article(res.body, url, published)
     if article is None or (not article.matches and not article.ignorable):
@@ -318,8 +300,7 @@ def same_fixture(state: State, m: Match) -> str | None:
     if m.kickoff is None:
         return None
     for key, rec in state.matches.items():
-        if (rec.kickoffs and rec.summary.get("home") == m.home
-                and datetime.fromisoformat(rec.kickoffs[-1][0]).date() == m.kickoff.date()):
+        if rec.kickoff and rec.home == m.home and rec.kickoff.date() == m.kickoff.date():
             return key
     return None
 
@@ -366,7 +347,7 @@ def run_import(cal: Calendar, pages: list[PageResult], state_path: Path, now: da
     for page in pages:
         report.skipped.extend(f"{s}: not a match" for s in page.skipped)
         for m in page.matches:
-            name = f"{m.opponent} ({'H' if m.home else 'A'})"
+            name = short_name(m.opponent, m.home)
             if not is_tracked(m):
                 continue  # home league games: the season ticket covers them
             if m.kickoff is not None and m.kickoff < now:
@@ -418,10 +399,9 @@ def _fixture_only(state: State, m: Match, now: datetime, report: Report) -> list
     changes = observe(state, m, None, now)
     rec = state.matches[m.key]
     st = m.status
-    sold = st.sold_out_label_seen or st.sold_out_to is not None
     rec.summary = {
         "opponent": m.opponent, "home": m.home, "competition": m.competition, "url": m.url,
-        "kind": "sold_out" if sold else "on_sale" if m.on_sale_now else "no_dates", "opens": None,
+        "kind": "sold_out" if st.sold else "on_sale" if m.on_sale_now else "no_dates", "opens": None,
         "sold_out_stage": st.sold_out_to, "kickoff_confirmed": m.kickoff_confirmed,
         "worth": m.fixture_points, "stages": [], "your_stage": None, "source": "import",
     }
@@ -436,7 +416,7 @@ def _owner(key: str, state: State) -> str:
     kind, rest = key.split(":", 1)
     if kind == "check":
         for url in state.articles:
-            if _slug(url) == rest:
+            if url_slug(url) == rest:
                 return url
         return rest
     if kind == "attention":
@@ -467,7 +447,7 @@ def _sync(cal: Calendar, state: State, notices: list[Notice], owners_ok: set[str
             continue
         removals.append((key, ev))
 
-    line = lambda start, title: f"{_when(start)} · {title}"
+    line = lambda start, title: f"{when(start)} · {title}"
     if dry_run:
         for n, existing, _ in writes:
             (report.updated if existing else report.created).append(line(n.start, n.title))
@@ -478,14 +458,14 @@ def _sync(cal: Calendar, state: State, notices: list[Notice], owners_ok: set[str
     if changes:
         progress(f"Updating the calendar ({len(changes)} {'change' if len(changes) == 1 else 'changes'})…")
     results = cal.apply(changes) if changes else []
-    for (n, existing, fp), result in zip(writes, results):
+    for (n, existing, fp), result in zip(writes, results[:len(writes)], strict=True):
         if isinstance(result, CalendarError):
             report.errors.append(f"calendar: {n.key}: {result}")
             continue
         (report.updated if existing else report.created).append(line(n.start, n.title))
         state.events[n.key] = {"uid": result, "owner": _owner(n.key, state), "one_shot": n.one_shot, "fp": fp,
                                "start": n.start.isoformat(), "title": n.title}
-    for (key, ev), result in zip(removals, results[len(writes):]):
+    for (key, ev), result in zip(removals, results[len(writes):], strict=True):
         if isinstance(result, CalendarError):
             report.errors.append(f"calendar: remove {key}: {result}")
             continue

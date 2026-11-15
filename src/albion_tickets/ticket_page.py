@@ -22,8 +22,8 @@ from pathlib import Path
 
 from . import venues
 from .dates import at_london, parse_day_date, parse_time
-from .model import Match
-from .parse_article import _competition, _heading, _season, _slug
+from .model import Match, match_key
+from .parse_article import _competition, _heading
 from .parse_stages import parse_stages, parse_status
 
 SCRIPT = Path(__file__).with_name("pdf_text.js")
@@ -121,7 +121,7 @@ def parse_ticket_page(text: str, today: date, source: str) -> PageResult:
         stages, unreadable = parse_stages(body, day, today)
         pts = re.search(r"points allocated for this fixture\s*:?\s*(\d+)", body, re.I)
         matches.append(Match(
-            key=f"{_season(day)}-{_slug(opponent)}-{'h' if home else 'a'}-{_slug(competition)}",
+            key=match_key(day, opponent, home, competition),
             opponent=opponent,
             home=home,
             competition=competition,

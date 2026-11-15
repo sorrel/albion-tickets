@@ -2,10 +2,9 @@
 import re
 from dataclasses import dataclass
 from datetime import date
-from urllib.parse import urlsplit
 
 from .dates import at_london, parse_day_date, parse_time
-from .model import Match
+from .model import Match, match_key, url_slug
 from .parse_stages import parse_stages, parse_status
 from .payload import article_var, field_after, object_at, rich_text
 
@@ -52,15 +51,6 @@ def _join_split_dates(lines: list[str]) -> list[str]:
         else:
             out.append(line)
     return out
-
-
-def _slug(s: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
-
-
-def _season(d: date) -> str:
-    start = d.year if d.month >= 8 else d.year - 1
-    return f"{start}-{(start + 1) % 100:02d}"
 
 
 def _competition(text: str) -> str:
@@ -142,7 +132,7 @@ def parse_text(text: str, url: str, title: str, published: date | None) -> Artic
         stages, unreadable = parse_stages(segment, d, published)
         pts = _POINTS.search(segment)
         matches.append(Match(
-            key=f"{_season(d or published or date.today())}-{_slug(opponent)}-{'h' if home else 'a'}-{_slug(competition)}",
+            key=match_key(d or published or date.today(), opponent, home, competition),
             opponent=opponent,
             home=home,
             competition=competition,
@@ -159,7 +149,7 @@ def parse_text(text: str, url: str, title: str, published: date | None) -> Artic
 
 
 def parse_article(html: str, url: str, today: date) -> Article | None:
-    slug = urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1]
+    slug = url_slug(url)
     text = article_text(html, slug)
     if text is None:
         return None

@@ -104,10 +104,9 @@ def decide(m: Match, points: int, now: datetime, first_sold_out_seen: datetime |
     note = _pattern_note(m.stages)
 
     st = m.status
-    sold = st.sold_out_label_seen or st.wheelchair_only or st.sold_out_to is not None
     seen = first_sold_out_seen or now
     first_open = min(s.opens for s in m.stages)
-    if sold and seen >= first_open:
+    if st.sold and seen >= first_open:
         at_stage = _sold_out_stage(m, seen)
         if at_stage is None:
             return Outcome("unreadable", mine, mine.opens, None, note)

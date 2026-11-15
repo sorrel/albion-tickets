@@ -37,8 +37,10 @@ Each match appears with its ground pinned on a map.
 
 The ticket site lists sale dates weeks before the club's news, but the tool
 never visits it. Save its Away Games or Home Games page as a PDF in your own
-browser and run `albion import` on it. Away games and home cup ties are kept;
-the club's news takes over each match once it covers it.
+browser and run `albion import` on it. Away games and home cup ties get sale
+reminders; home league games, covered by the season ticket, get just their
+fixture, so the calendar has every match. The club's news takes over each
+match once it covers it, and Fixture News moves any of them.
 
 Your points and history stay in `data/` on your Mac, with a daily copy in
 `data/backups/`.

@@ -10,6 +10,7 @@ import click
 
 from .display import comp, day, table, title, when
 from .model import season_of, short_name
+from .records import SEASON_TICKET
 from .rules import sold_out_tier
 from .store import MatchRecord, State, by_season
 
@@ -18,7 +19,9 @@ HEADER = ["Kick-off", "Match", "Comp", "Worth", "Tue / Wed / Thu", "Your sale", 
 
 def render(state: State, season: str | None, show_all: bool, verbose: bool, today: date) -> str:
     """The chosen season (default: this one, else the latest recorded), or every season."""
-    seasons = by_season(state)
+    seasons = {sn: [r for r in recs if r.summary.get("kind") != SEASON_TICKET]  # sales only: no home league
+               for sn, recs in by_season(state).items()}
+    seasons = {sn: recs for sn, recs in seasons.items() if recs}
     if not seasons:
         return "No matches tracked yet: run albion check."
     current = season_of(today)

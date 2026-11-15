@@ -63,15 +63,21 @@ def test_competition_and_sell_out():
     assert m.status.sold_out_to.startswith("All STHs")
 
 
-def test_home_page_keeps_cup_ties_only(state_path):
+def test_home_league_games_get_their_fixture_but_no_sale_reminders(state_path):
     text = ("Home Games\nSat 9 Jan Sat 9 Jan\n3:00 PM\nAlbion v Leeds Albion v Leeds\nEmirates FA Cup\n"
             "On Sale Dates:\nSTHs/1901 Club Members: Tue 15 Dec, 9am\n"
             "Sat 16 Jan\n3:00 PM\nAlbion v Wolves\nPremier League\n")
     r = parse_ticket_page(text, date(2026, 11, 13), "saved page")
     assert [(m.opponent, m.home, m.competition) for m in r.matches] == [
         ("Leeds United", True, "FA Cup"), ("Wolverhampton Wanderers", True, "Premier League")]
-    report = run_import(FakeCalendar(), [r], state_path, NOW, dry_run=False)
-    assert report.imported == ["2026-27-leeds-united-h-fa-cup"]
+    cal = FakeCalendar()
+    report = run_import(cal, [r], state_path, NOW, dry_run=False)
+    assert report.imported == ["2026-27-leeds-united-h-fa-cup", "2026-27-wolverhampton-wanderers-h-premier-league"]
+    wolves = [n for n in cal.events.values() if "Wolverhampton" in n.title]
+    assert [(n.title, n.location.split(",")[0]) for n in wolves] == [
+        ("⚽ Albion v Wolverhampton Wanderers", "American Express Stadium")]
+    assert load(state_path).matches["2026-27-wolverhampton-wanderers-h-premier-league"].summary["kind"] == \
+        "season_ticket"
 
 
 def test_pdf_text_passes_the_path_as_an_argument(monkeypatch, tmp_path):
@@ -261,7 +267,7 @@ def test_cli_got_ambiguous_or_unknown(env, tmp_path):
 HOME = (FIX / "ticket-page-home.txt").read_text()
 
 
-def test_home_page_heading_before_time_and_cup_ties_only(state_path):
+def test_home_page_heading_before_time_and_every_match_imported(state_path):
     r = parse_ticket_page(HOME, date(2026, 11, 13), "saved page")
     assert len(r.matches) == 16 and r.skipped == []
     craiova = r.matches[0]
@@ -269,9 +275,10 @@ def test_home_page_heading_before_time_and_cup_ties_only(state_path):
         "Universitatea Craiova", True, "UEFA Conference League")
     assert craiova.kickoff == datetime(2026, 11, 26, 17, 45, tzinfo=TZ)
     assert craiova.on_sale_now and craiova.stages == []
-    report = run_import(FakeCalendar(), [r], state_path, NOW, dry_run=False)
-    assert report.imported == ["2026-27-universitatea-craiova-h-uefa-conference-league",
-                               "2026-27-as-monaco-h-uefa-conference-league"]
+    cal = FakeCalendar()
+    report = run_import(cal, [r], state_path, NOW, dry_run=False)
+    assert len(report.imported) == 16
+    assert not [n for n in cal.events.values() if "premier-league" in n.key and not n.key.startswith("fixture:")]
 
 
 def test_cup_tie_with_tickets_in_hand_keeps_its_fixture(env, tmp_path, monkeypatch):

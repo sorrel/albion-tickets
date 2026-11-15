@@ -15,6 +15,12 @@ from .sync import Report
 KEEP_TRACKING = timedelta(days=1)  # a match's events are kept until the day after it
 KEEP_WITH_TICKETS = {"fixture", "kickoff_moved"}  # with a ticket in hand, sale news is noise
 FROM_PAGE = ("import", "draw")  # sources no article owns: none ever retires their events
+SEASON_TICKET = "season_ticket"  # the kind of a home league game: in the calendar, but no sale reminders
+
+
+def season_ticket(m: Match) -> bool:
+    """A home league game: the season ticket covers it."""
+    return m.home and m.competition == "Premier League"
 
 
 def _dt(iso: str | None) -> datetime | None:
@@ -52,10 +58,17 @@ def match_notices(state: State, m: Match, now: datetime, report: Report,
 
 
 def fixture_only(state: State, m: Match, now: datetime, report: Report) -> list[Notice]:
-    """Record a saved-page match with no sale dates (sold out, on sale, or none yet): its fixture alone."""
+    """Record a saved-page match whose sales don't concern the user: its fixture alone.
+
+    A home league game (the season ticket covers it), or a match with no sale
+    dates on the page (sold out, on sale now, or none yet).
+    """
     changes = observe(state, m, None, now)
-    kind = "sold_out" if m.status.sold else "on_sale" if m.on_sale_now else "no_dates"
-    state.matches[m.key].summary = summary(m, kind, None, m.status.sold_out_to, None) | {"source": "import"}
+    if season_ticket(m):
+        kind, sold_out = SEASON_TICKET, None
+    else:
+        kind, sold_out = "sold_out" if m.status.sold else "on_sale" if m.on_sale_now else "no_dates", m.status.sold_out_to
+    state.matches[m.key].summary = summary(m, kind, None, sold_out, None) | {"source": "import"}
     report.changes.extend(described(changes, m))
     return located(fixture(m), state, m) + change_notices(changes, m, now)
 

@@ -9,7 +9,8 @@ from albion_tickets import cli as cli_mod
 from albion_tickets import ticket_page
 from albion_tickets.calendar_app import FakeCalendar
 from albion_tickets.config import TZ
-from albion_tickets.run import run_check, run_import
+from albion_tickets.importing import run_import
+from albion_tickets.run import run_check
 from albion_tickets.store import State, load, save
 from albion_tickets.ticket_page import parse_ticket_page
 

@@ -12,18 +12,16 @@ The club writes these as prose, one sentence per match:
 This module only reads text. Which tracked match a sentence means is decided
 in run.py, which knows what is tracked.
 """
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Literal
 
-from .dates import _DATE_RE, at_london, parse_day_date, parse_time
-from .parse_article import _competition, _heading
+from .dates import DATE_RE, at_london, parse_day_date, parse_time
+from .parse_article import competition, heading
 from .ticket_page import ALIASES, canonical
 
-Side = Literal["home", "away"]
+type Side = Literal["home", "away"]
 
 _HOME = re.compile(r"\b(at home|home (?:game|match|tie|fixture|leg)|welcome|host(?:s|ing)?|"
                    r"(?:at|to) the Amex|American Express Stadium)\b", re.I)
@@ -108,7 +106,7 @@ def _side(sentence: str, name: str | None = None) -> Side | None:
 def _when(sentence: str, published: date) -> tuple[datetime | None, bool]:
     """The last date in a sentence ("moved from Saturday 21 to Sunday 22 November"
     names the new one last), with the time that follows it."""
-    found = list(_DATE_RE.finditer(sentence))
+    found = list(DATE_RE.finditer(sentence))
     for m in reversed(found):
         d = parse_day_date(m.group(0), before=None, after=published)
         if d is None:
@@ -139,7 +137,7 @@ def read(text: str, title: str, published: date, known: list[str]) -> FixtureNew
             when, time_given = _when(s, published)
             postponed = bool(_POSTPONED.search(s)) and not _NEW_DATE.search(s)
             if when is None and not postponed:
-                if _DATE_RE.search(s):  # a date we couldn't read (e.g. its weekday doesn't fit)
+                if DATE_RE.search(s):  # a date we couldn't read (e.g. its weekday doesn't fit)
                     news.unclear.append(s)
                 continue  # otherwise a mention, not news about the match
             news.moves.append(Move(opponent, _side(s, name.group(0)), when, time_given, postponed, s))
@@ -147,25 +145,25 @@ def read(text: str, title: str, published: date, known: list[str]) -> FixtureNew
 
 
 def _draws(parts: list[str], title: str, text: str, published: date) -> list[Draw]:
-    competition = _competition(title + "\n" + text)
-    if competition == "Premier League":
+    comp = competition(title + "\n" + text)
+    if comp == "Premier League":
         return []
-    tie = next((h for h in (_heading(p.rstrip("."), "") for p in parts) if h), None)
+    tie = next((h for h in (heading(p.rstrip("."), "") for p in parts) if h), None)
     if tie is None:
         return []
     opponent, home = canonical(tie[0]), tie[1]
-    legs = [p for p in parts if _LEG.search(p) and _DATE_RE.search(p)]
+    legs = [p for p in parts if _LEG.search(p) and DATE_RE.search(p)]
     draws: list[Draw] = []
     for p in legs:
         kickoff, time_given = _when(p, published)
         side = _side(p) if kickoff else None
         if kickoff is not None and side is not None:
-            draws.append(Draw(opponent, side == "home", competition, kickoff, True, time_given, p))
+            draws.append(Draw(opponent, side == "home", comp, kickoff, True, time_given, p))
     if draws:
         return draws
-    dated = next((p for p in parts if _DATE_RE.search(p)), None)
+    dated = next((p for p in parts if DATE_RE.search(p)), None)
     kickoff, time_given = _when(dated, published) if dated else (None, False)
     if kickoff is not None and not time_given:
         kickoff = kickoff.replace(hour=15, minute=0)  # a placeholder until the ticket news says
     confirmed = dated is not None and not _PROVISIONAL.search(dated)
-    return [Draw(opponent, home, competition, kickoff, confirmed, time_given, dated or "")]
+    return [Draw(opponent, home, comp, kickoff, confirmed, time_given, dated or "")]

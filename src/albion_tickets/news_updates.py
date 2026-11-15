@@ -5,17 +5,14 @@ each one means and records it on that match (`MatchRecord.news`). The fixture
 event itself is rebuilt from the record by `run._refresh_fixtures`, or by the
 match's ticket article through `with_news`, so every source agrees.
 """
-from __future__ import annotations
-
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 
 from . import fixture_news
 from .dates import at_london
 from .fixture_news import Draw, Move
-from .model import Match
+from .model import Match, match_key, url_slug
 from .notices import Notice, alert, check_this, match_name, moved
-from .parse_article import _season, _slug
 from .store import MatchRecord, State
 
 REREAD_AFTER = timedelta(hours=20)  # about daily while the article is in the listing
@@ -60,19 +57,15 @@ def apply(state: State, url: str, info: dict, text: str, now: datetime, changes:
         out.extend(_add_tie(state, tie, published, url, now, changes))
     if unsure:
         first = datetime.fromisoformat(info.setdefault("first_problem", now.isoformat()))
-        out.append(check_this(f"check:{url.rsplit('/', 1)[-1]}", url, info.get("title", url), first, None,
+        out.append(check_this(f"check:{url_slug(url)}", url, info.get("title", url), first, None,
                               f"couldn't tell which match: “{unsure[0][:80]}”"))
     info["read"] = now.isoformat()
     return out
 
 
-def _kickoff(rec: MatchRecord) -> datetime:
-    return datetime.fromisoformat(rec.kickoffs[-1][0])
-
-
 def _upcoming(rec: MatchRecord, now: datetime) -> bool:
     """Still to be played, or postponed and awaiting its new date."""
-    return bool(rec.kickoffs) and (_kickoff(rec) + timedelta(days=1) >= now or bool(rec.news.get("postponed")))
+    return bool(rec.kickoffs) and (rec.kickoff + timedelta(days=1) >= now or bool(rec.news.get("postponed")))
 
 
 def _match_for(mv: Move, tracked: dict[str, MatchRecord]) -> str | None:
@@ -90,8 +83,8 @@ def _match_for(mv: Move, tracked: dict[str, MatchRecord]) -> str | None:
     if len(cands) == 1 and mv.side is not None:
         return next(iter(cands))
     if mv.when is None:
-        return min(cands, key=lambda k: _kickoff(cands[k]), default=None)
-    near = {k: abs(_kickoff(r) - mv.when) for k, r in cands.items()}
+        return min(cands, key=lambda k: cands[k].kickoff, default=None)
+    near = {k: abs(r.kickoff - mv.when) for k, r in cands.items()}
     best = min(near, key=near.get, default=None)
     return best if best is not None and (mv.side is not None or near[best] <= NEAR) else None
 
@@ -100,16 +93,16 @@ def _record_move(rec: MatchRecord, key: str, mv: Move, published: date, url: str
                  changes: list[str]) -> list[Notice]:
     """Record a postponement or a new kick-off; returns the alert, if it is news."""
     base = {"published": published.isoformat(), "url": url}
-    opponent = rec.summary.get("opponent", key)
+    opponent = rec.opponent
     if mv.postponed:
         if rec.news.get("postponed"):
             return []
         rec.news = {**base, "postponed": "yes"}
         changes.append(f"{opponent}: postponed")
-        name = match_name(opponent, rec.summary.get("home", False))
+        name = match_name(opponent, rec.home)
         return [alert(f"postponed:{key}:{published}", f"{name} postponed", url, now)]
-    old = rec.kickoffs[-1][0]
-    new = mv.when if mv.time_given else at_london(mv.when.date(), _kickoff(rec).astimezone(mv.when.tzinfo).time())
+    old = rec.kickoff_iso
+    new = mv.when if mv.time_given else at_london(mv.when.date(), rec.kickoff.astimezone(mv.when.tzinfo).time())
     rec.news = {**base, "kickoff": new.isoformat(), "confirmed": "yes" if mv.time_given else ""}
     if new.isoformat() == old:
         return []
@@ -121,7 +114,7 @@ def _record_move(rec: MatchRecord, key: str, mv: Move, published: date, url: str
 def _add_tie(state: State, tie: Draw, published: date, url: str, now: datetime, changes: list[str]) -> list[Notice]:
     """A new cup tie from a draw: a record (and so a fixture event) plus an alert."""
     on = tie.kickoff.date() if tie.kickoff else published
-    key = f"{_season(on)}-{_slug(tie.opponent)}-{'h' if tie.home else 'a'}-{_slug(tie.competition)}"
+    key = match_key(on, tie.opponent, tie.home, tie.competition)
     if key in state.matches:
         return []
     state.matches[key] = MatchRecord(

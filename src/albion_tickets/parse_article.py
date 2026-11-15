@@ -1,13 +1,10 @@
 """A ticket article → the matches it describes."""
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass
 from datetime import date
-from urllib.parse import urlsplit
 
 from .dates import at_london, parse_day_date, parse_time
-from .model import Match
+from .model import Match, match_key, url_slug
 from .parse_stages import parse_stages, parse_status
 from .payload import article_var, field_after, object_at, rich_text
 
@@ -56,31 +53,18 @@ def _join_split_dates(lines: list[str]) -> list[str]:
     return out
 
 
-def _slug(s: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+# Wording → competition, first match wins; anything else is the league.
+_COMPETITIONS = [("conference league", "UEFA Conference League"), ("europa league", "UEFA Europa League"),
+                 ("champions league", "UEFA Champions League"), ("fa cup", "FA Cup"),
+                 ("carabao cup", "League Cup"), ("league cup", "League Cup")]
 
 
-def _season(d: date) -> str:
-    start = d.year if d.month >= 8 else d.year - 1
-    return f"{start}-{(start + 1) % 100:02d}"
-
-
-def _competition(text: str) -> str:
+def competition(text: str) -> str:
     low = text.lower()
-    if "conference league" in low:
-        return "UEFA Conference League"
-    if "europa league" in low:
-        return "UEFA Europa League"
-    if "champions league" in low:
-        return "UEFA Champions League"
-    if "fa cup" in low or "emirates fa cup" in low:
-        return "FA Cup"
-    if "carabao cup" in low or "league cup" in low:
-        return "League Cup"
-    return "Premier League"
+    return next((name for words, name in _COMPETITIONS if words in low), "Premier League")
 
 
-def _heading(line: str, segment: str) -> tuple[str, bool] | None:
+def heading(line: str, segment: str) -> tuple[str, bool] | None:
     """(opponent, home) from a match heading line, or None."""
     line = _SUFFIX.sub("", line)
     if ":" in line or len(line) > 60:
@@ -133,21 +117,21 @@ def parse_text(text: str, url: str, title: str, published: date | None) -> Artic
     for n, start in enumerate(starts):
         end = starts[n + 1] if n + 1 < len(starts) else len(lines)
         segment = "\n".join(lines[start:end])
-        head = _heading(lines[start], segment)
+        head = heading(lines[start], segment)
         if head is None:
             continue
         opponent, home = head
         when = lines[start + 1]
         d = parse_day_date(when, None, published)
         kickoff = at_london(d, parse_time(when.split("kick", 1)[-1])[0]) if d else None
-        competition = _competition(segment if home else segment + "\n" + title)
+        comp = competition(segment if home else segment + "\n" + title)
         stages, unreadable = parse_stages(segment, d, published)
         pts = _POINTS.search(segment)
         matches.append(Match(
-            key=f"{_season(d or published or date.today())}-{_slug(opponent)}-{'h' if home else 'a'}-{_slug(competition)}",
+            key=match_key(d or published or date.today(), opponent, home, comp),
             opponent=opponent,
             home=home,
-            competition=competition,
+            competition=comp,
             kickoff=kickoff,
             kickoff_confirmed=not _UNCONFIRMED.search(segment),
             stages=stages,
@@ -161,7 +145,7 @@ def parse_text(text: str, url: str, title: str, published: date | None) -> Artic
 
 
 def parse_article(html: str, url: str, today: date) -> Article | None:
-    slug = urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1]
+    slug = url_slug(url)
     text = article_text(html, slug)
     if text is None:
         return None

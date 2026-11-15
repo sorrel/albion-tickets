@@ -3,10 +3,8 @@
 Each match falls into exactly one section (`section_of`), and each section
 says how its table looks (`SECTIONS`), so the rendering is one loop.
 """
-from __future__ import annotations
-
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from . import venues
@@ -17,7 +15,7 @@ from .store import MatchRecord, State
 SOON = timedelta(days=7)  # a sale this close stands out
 PREDICTED_NOTE = "Predicted: your usual day, until the club announces the points brackets."
 
-Row = Callable[[str, MatchRecord], list[str]]
+type Row = Callable[[str, MatchRecord], list[str]]
 
 
 @dataclass(frozen=True)
@@ -27,7 +25,7 @@ class Section:
     lead: Row = lambda key, rec: []
     tail: Row = lambda key, rec: []
     style: Callable[[MatchRecord, datetime], dict] = lambda rec, now: {}
-    sort: Callable[[MatchRecord], str] = lambda rec: rec.kickoffs[-1][0] if rec.kickoffs else ""
+    sort: Callable[[MatchRecord], str] = lambda rec: rec.kickoff_iso
     empty: str | None = None  # shown when the section has no matches; None leaves it out
     footnote: Callable[[list[list[str]]], str | None] = lambda rows: None
 
@@ -87,7 +85,7 @@ def section_of(key: str, rec: MatchRecord, state: State, now: datetime) -> str:
 
 def _to_come(rec: MatchRecord, now: datetime) -> bool:
     """Not yet played: no date, a date ahead, or postponed (its old date may have passed)."""
-    return not rec.kickoffs or rec.news.get("postponed") or datetime.fromisoformat(rec.kickoffs[-1][0]) >= now
+    return rec.kickoff is None or rec.news.get("postponed") or rec.kickoff >= now
 
 
 def render(state: State, now: datetime) -> str:
@@ -110,6 +108,7 @@ def render(state: State, now: datetime) -> str:
         blocks.append("\n".join(filter(None, [heading, body, note and dim(note)])))
     checks = sorted(k for k in state.events if k.startswith("check:"))
     if checks:
-        blocks.append("\n".join([title("Check this reminders"), *(f"{k}  {dim(f'albion dismiss {k}')}" for k in checks)]))
+        lines = [f"{k}  {dim(f'albion dismiss {k}')}" for k in checks]
+        blocks.append("\n".join([title("Check this reminders"), *lines]))
     last = f"Last checked {when(state.last_check)}." if state.last_check else "Not checked yet: run albion check."
     return "\n\n".join([*blocks, dim(last)])

@@ -4,8 +4,6 @@ The pages are rendered in the browser from a JavaScript data payload of the
 form  a.slug="…";a.mediaType="Article";…;a.articleBody={…rich text…}.
 We never execute it: we find our article's object and read its text nodes.
 """
-from __future__ import annotations
-
 import json
 import re
 

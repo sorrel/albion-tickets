@@ -1,6 +1,4 @@
 """Find ticket-news articles in the all-news listing page."""
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass
 from datetime import date

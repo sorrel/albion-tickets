@@ -55,7 +55,7 @@ def _add_old_season(tmp_path):
     p = tmp_path / "state.json"
     st = load(p)
     key = next(iter(st.matches))
-    old = type(st.matches[key])(**{**st.matches[key].__dict__})
+    old = type(st.matches[key])(**st.matches[key].__dict__)
     old.kickoffs = [["2026-03-14T15:00:00+00:00", "2026-02-20T10:00:00+00:00"]]
     old.summary = {**old.summary, "opponent": "Leeds United"}
     st.matches["2025-26-leeds-united-a-premier-league"] = old

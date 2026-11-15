@@ -1,9 +1,13 @@
-"""albion — reminders for Albion away and cup ticket sales."""
-from __future__ import annotations
+"""albion — reminders for Albion away and cup ticket sales.
 
-from datetime import date, datetime
-
+Commands only: the work is in run (check), importing (import), upcoming and
+history. make_calendar, make_fetcher, pdf_text and _today are looked up here
+at call time so tests can swap them.
+"""
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import date, datetime
 from pathlib import Path
 
 import click
@@ -11,15 +15,19 @@ import click
 from . import config
 from .calendar_app import MacCalendar
 from .calendar_app import remove as remove_event
-from .display import comp, day, table, when
+from .display import dim, table, title, when
 from .export import export as export_history
 from .fetch import polite_fetcher
+from .history import render as render_history
+from .importing import run_import
+from .model import Match, short_name
 from .progress import Progress
 from .rules import decide, sold_out_text
-from .run import run_check, run_import
+from .run import run_check
+from .store import State, StateError, load, save
+from .sync import Report, silent
+from .ticket_page import PageResult, PdfError, parse_ticket_page, pdf_text
 from .upcoming import render as render_upcoming
-from .ticket_page import PdfError, parse_ticket_page, pdf_text
-from .store import StateError, load, save
 
 
 def make_calendar():
@@ -30,15 +38,60 @@ def make_fetcher():
     return polite_fetcher()
 
 
-def _state_path():
+def _today() -> date:
+    return datetime.now(config.TZ).date()
+
+
+def _state_path() -> Path:
     return config.data_dir() / "state.json"
 
 
-def _load():
+def _load() -> State:
     try:
         return load(_state_path())
     except StateError as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+def _plural(n: int, word: str, many: str | None = None) -> str:
+    return f"{n} {word if n == 1 else many or word + 's'}"
+
+
+@contextmanager
+def _progress(show: bool | None) -> Iterator:
+    """A status line on stderr (by default only in a terminal), cleared afterwards."""
+    if not (sys.stderr.isatty() if show is None else show):
+        yield silent
+        return
+    line = Progress(sys.stderr)
+    try:
+        yield line
+    finally:
+        line.close()
+
+
+def _calendar_line(report: Report, dry_run: bool) -> str:
+    """'Calendar: added 2, updated 1.' or 'Dry run: would add 2, update 1 events (nothing written).'"""
+    done = [(n, verb, past) for n, verb, past in ((len(report.created), "add", "added"),
+                                                  (len(report.updated), "update", "updated"),
+                                                  (len(report.removed), "remove", "removed")) if n]
+    if not done:
+        return "Dry run: calendar already up to date." if dry_run else "Calendar up to date."
+    if dry_run:
+        total = sum(n for n, _, _ in done)
+        return (f"Dry run: would {', '.join(f'{verb} {n}' for n, verb, _ in done)} "
+                f"{'event' if total == 1 else 'events'} (nothing written).")
+    return "Calendar: " + ", ".join(f"{past} {n}" for n, _, past in done) + "."
+
+
+def _errors(report: Report) -> None:
+    for err in report.errors:
+        click.echo(f"Error: {err}", err=True)
+
+
+_dry_run = click.option("--dry-run", is_flag=True, help="Show what would change; touch nothing.")
+_show_progress = click.option("--progress/--quiet", "show_progress", default=None,
+                              help="Show a status line while it runs (default: only in a terminal).")
 
 
 @click.group()
@@ -51,60 +104,31 @@ def cli(ctx):
     ctx.call_on_close(click.echo)
 
 
-def _count(n: int, word: str = "event") -> str:
-    return f"{n} {word}{'' if n == 1 else 's'}"
-
-
 @cli.command()
-@click.option("--dry-run", is_flag=True, help="Show what would change; touch nothing.")
-@click.option("--progress/--quiet", "show_progress", default=None,
-              help="Show a status line while it runs (default: only in a terminal).")
+@_dry_run
+@_show_progress
 @click.option("-v", "--verbose", is_flag=True, help="List every calendar change with its date.")
 def check(dry_run, show_progress, verbose):
     """Read the club's ticket news and update the calendar."""
-    now = datetime.now(config.TZ)
-    if show_progress is None:
-        show_progress = sys.stderr.isatty()
-    progress = Progress(sys.stderr) if show_progress else None
-    try:
-        report = run_check(make_calendar(), make_fetcher(), _state_path(), now, dry_run,
-                           **({"progress": progress} if progress else {}))
-    finally:
-        if progress:
-            progress.close()
-
-    added, updated, removed = len(report.created), len(report.updated), len(report.removed)
-    if not (added or updated or removed):
-        click.echo("Dry run: calendar already up to date." if dry_run else "Calendar up to date.")
-    else:
-        parts = [p for p in (f"add {added}" if added else "", f"update {updated}" if updated else "",
-                             f"remove {removed}" if removed else "") if p]
-        if dry_run:
-            click.echo(f"Dry run: would {', '.join(parts)} {'event' if added + updated + removed == 1 else 'events'}"
-                       " (nothing written).")
-        else:
-            done = {"add": "added", "update": "updated", "remove": "removed"}
-            click.echo("Calendar: " + ", ".join(f"{done[p.split()[0]]} {p.split()[1]}" for p in parts) + ".")
+    with _progress(show_progress) as progress:
+        report = run_check(make_calendar(), make_fetcher(), _state_path(), datetime.now(config.TZ), dry_run,
+                           progress)
+    click.echo(_calendar_line(report, dry_run))
     click.echo(f"Next sale: {report.next_sale}" if report.next_sale else "No sales for you coming up yet.")
     for change in report.changes:
         click.echo(f"⚠️ {change}")
-    for title in report.needs_look:
-        click.echo(f"Needs a look: {title}")
+    for what in report.needs_look:
+        click.echo(f"Needs a look: {what}")
     if verbose:
-        for label, items in [("Add", report.created), ("Update", report.updated), ("Remove", report.removed)]:
+        for label, items in (("Add", report.created), ("Update", report.updated), ("Remove", report.removed)):
             if items:
-                click.echo(f"{label}:")
-                for item in items:
-                    click.echo(f"  {item}")
-    if not dry_run:
-        state = _load()
-        if state.export_dir:
-            try:
-                export_history(state, config.data_dir(), Path(state.export_dir))
-            except OSError as exc:
-                report.errors.append(f"export to {state.export_dir}: {exc}")
-    for err in report.errors:
-        click.echo(f"Error: {err}", err=True)
+                click.echo("\n".join([f"{label}:", *(f"  {item}" for item in items)]))
+    if not dry_run and (state := _load()).export_dir:
+        try:
+            export_history(state, config.data_dir(), Path(state.export_dir))
+        except OSError as exc:
+            report.errors.append(f"export to {state.export_dir}: {exc}")
+    _errors(report)
     raise SystemExit(1 if report.errors else 0)
 
 
@@ -118,91 +142,10 @@ def points(n):
     click.echo(f"Points set to {n}.")
 
 
-_KIND = {"sale": "", "predicted_sale": "expected", "sold_out_before_you": "sold out before you",
-         "exchange_open": "exchange", "unreadable": "check the article", "sold_out": "sold out",
-         "no_dates": "no sale dates yet", "on_sale": "on sale now"}
-
-
 @cli.command()
 def upcoming():
     """Matches to come: tickets you have, sales to come, and what has sold out."""
     click.echo(render_upcoming(_load(), datetime.now(config.TZ)))
-
-
-_UPCOMING_HEADER = ["Your sale", "Match", "Kick-off", "Note"]
-
-
-def _stage_name(st: dict) -> str:
-    if st.get("min_points") is not None:
-        return f"STHs/1901 with {st['min_points']}+ points"
-    return st["label"] + (" (points brackets not announced yet)" if st.get("pending") else "")
-
-
-def _today() -> date:
-    return datetime.now(config.TZ).date()
-
-
-def _season_of(d: date) -> str:
-    start = d.year if d.month >= 8 else d.year - 1
-    return f"{start}-{(start + 1) % 100:02d}"
-
-
-def _season_label(season: str) -> str:
-    return season.replace("-", "–")
-
-
-def _tier(label: str | None) -> str:
-    import re
-    if not label:
-        return "—"
-    m = re.search(r"(\d+)\s*\+", label)
-    if m:
-        return f"{m.group(1)}+"
-    low = label.lower()
-    if "general sale" in low:  # the widest group named is where it ran out
-        return "General sale"
-    if "purchase history" in low:
-        return "Purchase history"
-    if "myalbion" in low:
-        return "MyAlbion+"
-    if re.search(r"STH|1901", label, re.I):
-        return "All STHs"
-    return label
-
-
-def _row(rec) -> list[str]:
-    s = rec.summary
-    stages = s.get("stages", [])
-    brackets = [st for st in sorted(stages, key=lambda st: st["opens"]) if st.get("min_points") is not None]
-    if brackets:
-        thresholds = " / ".join(f"{st['min_points']}+" for st in brackets[:3])
-    elif any(st.get("pending") for st in stages):
-        thresholds = "not announced"
-    else:
-        thresholds = "—"
-    yours = next((st for st in stages if st["label"] == s.get("your_stage")), None)
-    ko = rec.kickoffs[-1][0] if rec.kickoffs else None
-    return [
-        when(ko) + ("" if s.get("kickoff_confirmed", True) else "?"),
-        f"{s.get('opponent', '?')} ({'H' if s.get('home') else 'A'})",
-        comp(s.get("competition", "")),
-        str(s["worth"]) if s.get("worth") is not None else "—",
-        thresholds,
-        day(yours["opens"]) if yours else "—",
-        _tier(rec.sold_out_at()),
-    ]
-
-
-_HEADER = ["Kick-off", "Match", "Comp", "Worth", "Tue / Wed / Thu", "Your sale", "Sold out at"]
-
-
-def _detail(rec) -> list[str]:
-    s = rec.summary
-    lines = [click.style(f"{s.get('opponent', '?')} ({'home' if s.get('home') else 'away'})", bold=True)]
-    for st in s.get("stages", []):
-        mine = "  ← your stage" if st["label"] == s.get("your_stage") else ""
-        lines.append(f"  {when(st['opens'])}  {_stage_name(st)}{mine}")
-    return lines
 
 
 @cli.command()
@@ -211,43 +154,7 @@ def _detail(rec) -> list[str]:
 @click.option("-v", "--verbose", is_flag=True, help="Also list every sale stage for each match.")
 def history(season, show_all, verbose):
     """Tracked matches by season: kick-off, worth, points brackets, your sale, sell-out."""
-    state = _load()
-    by_season: dict[str, list] = {}
-    for key, rec in state.matches.items():
-        by_season.setdefault(key[:7], []).append(rec)
-    if show_all:
-        seasons = sorted(by_season)
-    else:
-        wanted = season or _season_of(_today())
-        if wanted not in by_season and not season and by_season:
-            wanted = max(by_season)  # nothing yet this season: show the latest there is
-        seasons = [wanted]
-    if not by_season:
-        click.echo("No matches tracked yet: run albion check.")
-        return
-    out: list[str] = []
-    for sn in seasons:
-        recs = sorted(by_season.get(sn, []), key=lambda r: r.kickoffs[-1][0] if r.kickoffs else "")
-        if out:
-            out.append("")
-        if not recs:
-            out.append(f"No matches recorded for {_season_label(sn)}.")
-            continue
-        current = sn == _season_of(_today())
-        pts = f" · you have {state.points} points" if current and state.points is not None else ""
-        out.append(click.style(f"{_season_label(sn)} season{pts}", fg="yellow", bold=True))
-        out.append(table([_row(r) for r in recs], _HEADER))
-        moves = [f"{r.summary.get('opponent', '?')} kick-off moved: {when(old)} → {when(new)} (noticed {when(seen)})"
-                 for r in recs for (old, _), (new, seen) in zip(r.kickoffs, r.kickoffs[1:])]
-        if moves:
-            out.append("")
-            out.append(click.style("Kick-off changes", fg="yellow", bold=True))
-            out.extend(moves)
-        if verbose:
-            for r in recs:
-                out.append("")
-                out.extend(_detail(r))
-    click.echo("\n".join(out))
+    click.echo(render_history(_load(), season, show_all, verbose, _today()))
 
 
 @cli.command()
@@ -267,15 +174,12 @@ def dismiss(key):
 def export(folder):
     """Copy your history to FOLDER (remembered, and refreshed after every check)."""
     state = _load()
-    if folder is None:
-        if not state.export_dir:
-            raise click.ClickException("No export folder yet: run albion export <folder> once.")
-        folder = Path(state.export_dir)
-    else:
-        folder = folder.expanduser().resolve()
-        state.export_dir = str(folder)
+    if folder is not None:
+        state.export_dir = str(folder.expanduser().resolve())
         save(state, _state_path())
-    out = export_history(state, config.data_dir(), folder)
+    elif not state.export_dir:
+        raise click.ClickException("No export folder yet: run albion export <folder> once.")
+    out = export_history(state, config.data_dir(), Path(state.export_dir))
     click.echo(f"History copied to {out}. It will be refreshed after every check.")
 
 
@@ -287,22 +191,22 @@ def add(url):
     if not url.startswith(prefix):
         raise click.ClickException(f"Only club news articles are accepted ({prefix}…)")
     state = _load()
-    state.articles.setdefault(url, {"title": url[len(prefix):], "published": date.today().isoformat(),
+    state.articles.setdefault(url, {"title": url.removeprefix(prefix), "published": _today().isoformat(),
                                     "matches": []})
     save(state, _state_path())
     click.echo("Added. It will be read at the next check.")
 
 
-def _dim(text: str) -> str:
-    return click.style(text, dim=True)
+# --- import ------------------------------------------------------------------
+
+_NOTE = {"sale": "", "predicted_sale": "predicted: brackets not announced",  # outcome kind → the table's note
+         "sold_out_before_you": "sold out before you", "exchange_open": "exchange", "unreadable": "check the article"}
 
 
 @cli.command("import")
-@click.argument("files", nargs=-1, required=True,
-                type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--dry-run", is_flag=True, help="Show what would change; touch nothing.")
-@click.option("--progress/--quiet", "show_progress", default=None,
-              help="Show a status line while it runs (default: only in a terminal).")
+@click.argument("files", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@_dry_run
+@_show_progress
 def import_(files, dry_run, show_progress):
     """Read ticket pages you saved as PDFs (Away Games, Home Games).
 
@@ -312,97 +216,75 @@ def import_(files, dry_run, show_progress):
     league games.
     """
     now = datetime.now(config.TZ)
-    if show_progress is None:
-        show_progress = sys.stderr.isatty()
-    progress = Progress(sys.stderr) if show_progress else None
-    try:
-        pages = []
-        for i, f in enumerate(files, 1):
-            if progress:
-                count = f" ({i}/{len(files)})" if len(files) > 1 else ""
-                progress(f"Reviewing {f.name}{count}…")
-            try:
-                text = pdf_text(f)
-            except PdfError as exc:
-                raise click.ClickException(f"{f.name}: {exc}") from exc
-            result = parse_ticket_page(text, now.date(), f"From the ticket page you saved ({f.name}), "
-                                                         f"imported {now:%a} {now.day} {now:%b}")
-            if not result.matches:
-                raise click.ClickException(f"{f.name}: no fixtures found. Is it the Away Games or Home Games page?")
-            pages.append(result)
-        report = run_import(make_calendar(), pages, _state_path(), now, dry_run,
-                            **({"progress": progress} if progress else {}))
-    finally:
-        if progress:
-            progress.close()
-    for err in report.errors:
-        click.echo(f"Error: {err}", err=True)
+    with _progress(show_progress) as progress:
+        pages = [_read_page(f, i, len(files), now, progress) for i, f in enumerate(files, 1)]
+        report = run_import(make_calendar(), pages, _state_path(), now, dry_run, progress)
+    _errors(report)
     if report.errors and not report.imported:
         raise SystemExit(1)
 
     state = _load()
-    rows = []
-    for page in pages:
-        for m in page.matches:
-            if m.key not in report.imported:
-                continue
-            ko = m.kickoff.isoformat() if m.kickoff else None
-            outcome = decide(m, state.points, now, None) if m.stages else None
-            opens = outcome.opens.isoformat() if outcome and outcome.opens else None
-            if m.key in state.have_tickets:
-                note = "you have tickets"
-            elif outcome is None:
-                sold = m.status.sold_out_to or m.status.sold_out_label_seen
-                note = (sold_out_text(m.status.sold_out_to) if sold
-                        else "on sale now" if m.on_sale_now else "no sale dates yet")
-            elif outcome.kind == "predicted_sale":
-                note = "predicted: brackets not announced"
-            else:
-                note = _KIND.get(outcome.kind, outcome.kind.replace("_", " "))
-            rows.append((ko or "", [when(opens), f"{m.opponent} ({'H' if m.home else 'A'})", when(ko), note]))
-    heading = "Would import" if dry_run else "Imported"
-    click.echo(click.style(f"{heading} · {len(rows)} {'match' if len(rows) == 1 else 'matches'}",
-                           fg="yellow", bold=True))
-    if rows:
-        click.echo(table([r for _, r in sorted(rows, key=lambda r: r[0])], _UPCOMING_HEADER))
+    imported = sorted((m for page in pages for m in page.matches if m.key in report.imported),
+                      key=lambda m: m.kickoff.isoformat() if m.kickoff else "")
+    click.echo(title(f"{'Would import' if dry_run else 'Imported'} · {_plural(len(imported), 'match', 'matches')}"))
+    if imported:
+        click.echo(table([_imported_row(m, state, now) for m in imported], ["Your sale", "Match", "Kick-off", "Note"]))
     if report.skipped:
-        click.echo()
-        click.echo(click.style("Left alone", bold=True))
+        click.echo("\n" + click.style("Left alone", bold=True))
         for item in report.skipped:
-            what, why = item.rsplit(": ", 1) if ": " in item else (item, "")
-            click.echo(f"  {what}  {_dim(why)}")
-    click.echo()
-    added, updated = len(report.created), len(report.updated)
-    if not (added or updated or report.removed):
-        click.echo("Calendar already up to date." if not dry_run else "Dry run: calendar already up to date.")
-    else:
-        parts = [p for p in (f"{added} added" if added else "", f"{updated} updated" if updated else "",
-                             f"{len(report.removed)} removed" if report.removed else "") if p]
-        click.echo(("Dry run, nothing written. Calendar would have " if dry_run else "Calendar: ")
-                   + ", ".join(parts) + ".")
+            what, _, why = item.rpartition(": ") if ": " in item else (item, "", "")
+            click.echo(f"  {what}  {dim(why)}")
+    click.echo("\n" + _calendar_line(report, dry_run))
     if report.next_sale:
         click.echo(f"Next sale: {report.next_sale}")
-    click.echo(_dim("Sale days are predicted until the club announces points brackets; "
-                    "albion check takes over once it publishes the match's ticket news."))
+    click.echo(dim("Sale days are predicted until the club announces points brackets; "
+                   "albion check takes over once it publishes the match's ticket news."))
     raise SystemExit(1 if report.errors else 0)
 
 
-_REMINDERS = ("sale", "exchange", "exchange_closing", "check")
+def _read_page(f: Path, i: int, of: int, now: datetime, progress) -> PageResult:
+    progress(f"Reviewing {f.name}" + (f" ({i}/{of})" if of > 1 else "") + "…")
+    try:
+        text = pdf_text(f)
+    except PdfError as exc:
+        raise click.ClickException(f"{f.name}: {exc}") from exc
+    page = parse_ticket_page(text, now.date(), f"From the ticket page you saved ({f.name}), "
+                                               f"imported {now:%a} {now.day} {now:%b}")
+    if not page.matches:
+        raise click.ClickException(f"{f.name}: no fixtures found. Is it the Away Games or Home Games page?")
+    return page
 
 
-def _find_match(state, query: str) -> str:
+def _imported_row(m: Match, state: State, now: datetime) -> list[str]:
+    """Your sale, match, kick-off, and a note on where it stands."""
+    outcome = decide(m, state.points, now, None) if m.stages else None
+    if m.key in state.have_tickets:
+        note = "you have tickets"
+    elif outcome is not None:
+        note = _NOTE.get(outcome.kind, outcome.kind.replace("_", " "))
+    elif m.status.sold:
+        note = sold_out_text(m.status.sold_out_to)
+    else:
+        note = "on sale now" if m.on_sale_now else "no sale dates yet"
+    return [when(outcome.opens if outcome else None), short_name(m.opponent, m.home), when(m.kickoff), note]
+
+
+# --- got ---------------------------------------------------------------------
+
+_REMINDERS = ("sale", "exchange", "exchange_closing", "check")  # what `got` takes out of the calendar
+
+
+def _find_match(state: State, query: str) -> str:
+    """A match key, or the one upcoming match whose opponent contains `query`."""
     if query in state.matches:
         return query
     now = datetime.now(config.TZ)
-    q = query.lower()
     hits = [k for k, rec in state.matches.items()
-            if q in rec.summary.get("opponent", k).lower()
-            and not (rec.kickoffs and datetime.fromisoformat(rec.kickoffs[-1][0]) < now)]
+            if query.lower() in rec.summary.get("opponent", k).lower() and not (rec.kickoff and rec.kickoff < now)]
     if not hits:
         raise click.ClickException(f"No upcoming match matches “{query}”. See albion upcoming.")
     if len(hits) > 1:
-        raise click.ClickException(f"“{query}” matches several: " + ", ".join(sorted(hits))
-                                   + ". Give the full key.")
+        raise click.ClickException(f"“{query}” matches several: {', '.join(sorted(hits))}. Give the full key.")
     return hits[0]
 
 
@@ -416,13 +298,12 @@ def got(match, undo):
     """
     state = _load()
     key = _find_match(state, match)
-    name = state.matches[key].summary.get("opponent", key)
+    rec = state.matches[key]
     if undo:
         state.have_tickets.discard(key)
         save(state, _state_path())
-        source = state.matches[key].summary.get("source")
-        again = "albion import (with the saved page)" if source == "import" else "albion check"
-        click.echo(f"{name}: no longer marked as having tickets. Reminders return at the next {again}.")
+        again = "albion import (with the saved page)" if rec.summary.get("source") == "import" else "albion check"
+        click.echo(f"{rec.opponent}: no longer marked as having tickets. Reminders return at the next {again}.")
         return
     state.have_tickets.add(key)
     cal = make_calendar()
@@ -436,7 +317,8 @@ def got(match, undo):
         del state.events[ev_key]
         removed += 1
     save(state, _state_path())
-    click.echo(f"{name}: marked as having tickets." + (f" Removed {_count(removed, 'reminder')}." if removed else ""))
+    click.echo(f"{rec.opponent}: marked as having tickets."
+               + (f" Removed {_plural(removed, 'reminder')}." if removed else ""))
     for f in failed:
         click.echo(f"Error: calendar: {f}", err=True)
     if failed:

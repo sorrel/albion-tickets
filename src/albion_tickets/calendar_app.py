@@ -6,8 +6,6 @@ own line as soon as it is done, so a batch cut short still says what it
 finished: a created event is never lost (and later duplicated) because a
 later one stalled. FakeCalendar is the in-memory stand-in every test uses.
 """
-from __future__ import annotations
-
 import json
 import os
 import selectors

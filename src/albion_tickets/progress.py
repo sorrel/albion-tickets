@@ -5,8 +5,6 @@ seconds, the line ticks its elapsed seconds, so a slow fetch or a waiting
 Calendar.app is visibly still alive. `close()` clears the line, leaving the
 terminal for the summary.
 """
-from __future__ import annotations
-
 import shutil
 import threading
 import time

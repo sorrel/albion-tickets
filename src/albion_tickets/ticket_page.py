@@ -14,8 +14,6 @@ PDFKit gives each fixture as a block that starts with its date line:
     On Sale Dates:
     STHs/1901 Club Members *: Tue 01 Dec, 9am
 """
-from __future__ import annotations
-
 import re
 import subprocess
 from dataclasses import dataclass
@@ -24,8 +22,8 @@ from pathlib import Path
 
 from . import venues
 from .dates import at_london, parse_day_date, parse_time
-from .model import Match
-from .parse_article import _competition, _heading, _season, _slug
+from .model import Match, match_key
+from .parse_article import competition, heading
 from .parse_stages import parse_stages, parse_status
 
 SCRIPT = Path(__file__).with_name("pdf_text.js")
@@ -111,22 +109,22 @@ def parse_ticket_page(text: str, today: date, source: str) -> PageResult:
         # "TICKET INFORMATION" line between them; the competition follows both.
         top = block[1:5]
         when = next((i for i, l in enumerate(top, 1) if _TIME_LINE.match(l)), None)
-        named = next((i for i, l in enumerate(top, 1) if _heading(l, "") is not None), None)
+        named = next((i for i, l in enumerate(top, 1) if heading(l, "") is not None), None)
         if day is None or when is None or named is None:
             skipped.append(f"{block[0]}: {block[1] if len(block) > 1 else '(nothing after the date)'}")
             continue
-        opponent, home = _heading(block[named], "")
+        opponent, home = heading(block[named], "")
         opponent = canonical(opponent)
         after = max(when, named) + 1
-        competition = _competition(block[after] if after < len(block) else "")
+        comp = competition(block[after] if after < len(block) else "")
         body = "\n".join(block[after + 1:])
         stages, unreadable = parse_stages(body, day, today)
         pts = re.search(r"points allocated for this fixture\s*:?\s*(\d+)", body, re.I)
         matches.append(Match(
-            key=f"{_season(day)}-{_slug(opponent)}-{'h' if home else 'a'}-{_slug(competition)}",
+            key=match_key(day, opponent, home, comp),
             opponent=opponent,
             home=home,
-            competition=competition,
+            competition=comp,
             kickoff=at_london(day, parse_time(block[when])[0]),
             kickoff_confirmed=True,
             stages=stages,

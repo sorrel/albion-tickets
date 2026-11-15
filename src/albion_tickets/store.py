@@ -3,8 +3,6 @@
 Everything lives under data/ (gitignored). A corrupt state file stops the run
 rather than being silently reset, which would duplicate every event.
 """
-from __future__ import annotations
-
 import hashlib
 import json
 import os
@@ -43,6 +41,39 @@ class MatchRecord:
     def sold_out_at(self) -> str | None:
         return self.summary.get("sold_out_stage") or self.page_sold_out.get("label")
 
+    @property
+    def kickoff_iso(self) -> str:
+        """The latest kick-off seen ("" if none): also a sort key."""
+        return self.kickoffs[-1][0] if self.kickoffs else ""
+
+    @property
+    def kickoff(self) -> datetime | None:
+        return datetime.fromisoformat(self.kickoff_iso) if self.kickoffs else None
+
+    @property
+    def opponent(self) -> str:
+        return self.summary.get("opponent", "?")
+
+    @property
+    def home(self) -> bool:
+        return self.summary.get("home", False)
+
+    @property
+    def stages(self) -> list[dict]:
+        """The sale stages last read, in the order they open."""
+        return sorted(self.summary.get("stages", []), key=lambda st: st["opens"])
+
+    @property
+    def brackets(self) -> list[str]:
+        """The points brackets, in sale order: ['247+', '239+', '225+']."""
+        return [f"{st['min_points']}+" for st in self.stages if st.get("min_points") is not None]
+
+    @property
+    def your_sale(self) -> str | None:
+        """When the stage the user qualifies for opens."""
+        return next((st["opens"] for st in self.stages if st["label"] == self.summary.get("your_stage")), None)
+
+
 
 @dataclass
 class State:
@@ -56,6 +87,13 @@ class State:
     last_check: str | None = None  # when a (non-dry) check last read the club's news
     have_tickets: set[str] = field(default_factory=set)  # match keys: no sale reminders for these
     venues: dict[str, str] = field(default_factory=dict)  # opponent → ground, learnt from saved pages
+
+def by_season(state: State) -> dict[str, list[MatchRecord]]:
+    """Each season's records ('2026-27': […]), in kick-off order."""
+    seasons: dict[str, list[MatchRecord]] = {}
+    for key, rec in state.matches.items():
+        seasons.setdefault(key[:7], []).append(rec)  # keys start with the season
+    return {s: sorted(recs, key=lambda r: r.kickoff_iso) for s, recs in sorted(seasons.items())}
 
 
 @dataclass(frozen=True)
@@ -165,8 +203,8 @@ def observe(state: State, m: Match, outcome_opens: datetime | None, now: datetim
         ko = m.kickoff.isoformat()
         if not rec.kickoffs:
             rec.kickoffs.append((ko, stamp))
-        elif rec.kickoffs[-1][0] != ko:
-            changes.append(Change("kickoff_moved", m.key, rec.kickoffs[-1][0], ko))
+        elif rec.kickoff_iso != ko:
+            changes.append(Change("kickoff_moved", m.key, rec.kickoff_iso, ko))
             rec.kickoffs.append((ko, stamp))
 
     if outcome_opens is not None:
@@ -179,8 +217,7 @@ def observe(state: State, m: Match, outcome_opens: datetime | None, now: datetim
             rec.stage_opens = {"value": new, "seen": stamp}
 
     st = m.status
-    sold = st.sold_out_label_seen or st.wheelchair_only or st.sold_out_to is not None
-    if sold and m.stages:
+    if st.sold and m.stages:
         if now < min(s.opens for s in m.stages):
             rec.presale_sold_label = True  # a label before sales: never trusted on its own
         elif rec.first_sold_out_seen is None and (not rec.presale_sold_label or st.sold_out_to is not None):

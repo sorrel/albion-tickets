@@ -3,9 +3,8 @@
 Status labels ("BUY", "Sold Out") are never trusted on their own: a sell-out
 counts only once the match's first published stage has opened.
 """
-from __future__ import annotations
-
 import re
+from itertools import pairwise
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from typing import Literal
@@ -14,7 +13,7 @@ from .dates import at_london
 from .model import Match, Stage
 
 PATTERN_NOTE = "Not the usual Tuesday–Friday pattern"
-Kind = Literal["sale", "predicted_sale", "sold_out_before_you", "exchange_open", "unreadable"]
+type Kind = Literal["sale", "predicted_sale", "sold_out_before_you", "exchange_open", "unreadable"]
 
 
 @dataclass(frozen=True)
@@ -42,7 +41,7 @@ def _pattern_note(stages: list[Stage]) -> str | None:
     run = bracketed + [s for s in sth if s.min_points is None][:1]
     expected = [1, 2, 3, 4]  # Tue … Fri
     days = [s.opens.date() for s in run]
-    consecutive = all((b - a).days == 1 for a, b in zip(days, days[1:]))
+    consecutive = all((b - a).days == 1 for a, b in pairwise(days))
     if [d.weekday() for d in days] != expected or not consecutive:
         return PATTERN_NOTE
     return None
@@ -68,27 +67,33 @@ def _sold_out_stage(m: Match, seen: datetime) -> Stage | None:
     return opened[-1] if opened else None
 
 
-def sold_out_text(label: str | None) -> str:
-    """'STHs/1901 Club Members w/ 239+ Points' → 'sold out at 239+ points (STHs/1901)'.
+# The groups a sale reaches, widest first: (wording, short name, sentence).
+# The club's sell-out label lists everyone the sale was offered to, so the
+# widest group it names is where the tickets ran out.
+_LEVELS = [
+    (re.compile(r"general sale", re.I), "General sale", "at general sale"),
+    (re.compile(r"purchase history", re.I), "Purchase history", "to supporters with purchase history"),
+    (re.compile(r"myalbion", re.I), "MyAlbion+", "to all MyAlbion+ members"),
+    (re.compile(r"\bsths?\b|1901|season ticket", re.I), "All STHs", "to all STHs/1901 members"),
+]
+_POINTS_LEVEL = re.compile(r"(\d+)\s*\+")
 
-    The level is the last group the sale reached: the club lists everyone it
-    was offered to, so the widest group named is where it ran out.
-    """
-    if not label:
-        return "sold out"
-    low = label.lower()
-    pts = re.search(r"(\d+)\s*\+", label)
-    if pts:
-        return f"sold out at {pts.group(1)}+ points (STHs/1901)"
-    if "general sale" in low:
-        return "sold out at general sale"
-    if "purchase history" in low:
-        return "sold out to supporters with purchase history"
-    if "myalbion" in low:
-        return "sold out to all MyAlbion+ members"
-    if re.search(r"\bsths?\b|1901|season ticket", low):
-        return "sold out to all STHs/1901 members"
-    return f"sold out to {label}"
+
+def _level(label: str) -> tuple[str, str]:
+    """A sell-out label → (short name, sentence): ('239+', 'at 239+ points (STHs/1901)')."""
+    if pts := _POINTS_LEVEL.search(label):
+        return f"{pts.group(1)}+", f"at {pts.group(1)}+ points (STHs/1901)"
+    return next(((short, said) for words, short, said in _LEVELS if words.search(label)), (label, f"to {label}"))
+
+
+def sold_out_text(label: str | None) -> str:
+    """'STHs/1901 Club Members w/ 239+ Points' → 'sold out at 239+ points (STHs/1901)'."""
+    return f"sold out {_level(label)[1]}" if label else "sold out"
+
+
+def sold_out_tier(label: str | None) -> str:
+    """The same level, short, for a table column: '239+', 'MyAlbion+', 'All STHs'."""
+    return _level(label)[0] if label else "—"
 
 
 _STH_LINE = re.compile(r"\bSTHs?\b|season ticket|1901", re.IGNORECASE)
@@ -105,10 +110,9 @@ def decide(m: Match, points: int, now: datetime, first_sold_out_seen: datetime |
     note = _pattern_note(m.stages)
 
     st = m.status
-    sold = st.sold_out_label_seen or st.wheelchair_only or st.sold_out_to is not None
     seen = first_sold_out_seen or now
     first_open = min(s.opens for s in m.stages)
-    if sold and seen >= first_open:
+    if st.sold and seen >= first_open:
         at_stage = _sold_out_stage(m, seen)
         if at_stage is None:
             return Outcome("unreadable", mine, mine.opens, None, note)

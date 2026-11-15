@@ -2,7 +2,7 @@
 name = "albion-tickets"
 version = "0.2.0"
 description = "Reminders for Brighton & Hove Albion away and cup ticket sales, from the club's public ticket news"
-requires-python = ">=3.12"
+requires-python = ">=3.15"
 license = "MIT"
 license-files = ["LICENSE"]
 # Standard library only at runtime, apart from Click for the CLI.

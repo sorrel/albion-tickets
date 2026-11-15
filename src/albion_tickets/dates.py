@@ -1,6 +1,4 @@
 """Dates and times as the club writes them: no years, loose abbreviations."""
-from __future__ import annotations
-
 import re
 from datetime import date, datetime, time
 
@@ -10,7 +8,7 @@ _DAYS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 _MONTHS = {m: i for i, m in enumerate(
     ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
 
-_DATE_RE = re.compile(
+DATE_RE = re.compile(
     r"\b(mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+(\d{1,2})(?:st|nd|rd|th)?\s+"
     r"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b",
     re.IGNORECASE,
@@ -22,7 +20,7 @@ def parse_day_date(text: str, before: date | None, after: date | None) -> date |
     """'Tue 27 Oct' → a date. The year is inferred: the latest on or before
     `before` (the match day), or else the earliest on or after `after`.
     Returns None if there is no date, or if the weekday contradicts it."""
-    m = _DATE_RE.search(text)
+    m = DATE_RE.search(text)
     if not m:
         return None
     weekday = _DAYS[m.group(1)[:3].lower()]

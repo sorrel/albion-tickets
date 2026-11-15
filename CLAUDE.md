@@ -27,24 +27,27 @@ calendar ("Albion tickets"). How the club's pages are built:
 
 ## Conventions
 
-uv, Python ≥ 3.12, src layout, Click is the only runtime dependency, British
+uv, Python ≥ 3.15 (latest only), src layout, Click is the only runtime dependency, British
 English, feature branches only.
 
 ## Layout
 
 `fetch` → `discover` (Ticket and Fixture News in the all-news listing) →
 `parse_article`/`parse_stages`/`dates` (article → `Match`) → `rules`
-(`Outcome`) → `store` → `notices` → `calendar_app` — wired in `run.py`,
-exposed by `cli.py`.
+(`Outcome`) → `records` (match → record + notices) → `notices` → `sync` →
+`calendar_app`. `run.py` wires the check, `importing.py` saved pages; `cli.py`
+holds only commands, with `upcoming.py` and `history.py` rendering and
+`display.py` the shared table and date helpers. `model.py` defines keys,
+seasons and slugs once (`match_key`, `season_of`, `url_slug`).
 
 - **Calendar:** `calendar.js` (EventKit via `osascript`) takes one batch per
   run and prints a JSON result line per change as it goes. Event IDs are
   `calendarItemExternalIdentifier`. JXA wraps ObjC values: compare numbers
   with `Number(…)`, and get `CLLocation` via `NSClassFromString`.
 - **Saved pages:** `ticket_page` reads the Away/Home Games PDF (PDFKit via
-  `pdf_text.js`); `run.run_import` adds matches with `source: import`. The
+  `pdf_text.js`); `importing.run_import` adds matches with `source: import`. The
   club's news wins: import skips matches an article tracks, and
-  `run._adopt_import` hands an imported match to its article by fixture day.
+  `records.adopt_import` hands an imported match to its article by fixture day.
 - **Records:** `MatchRecord.summary` is rebuilt every check. What only a saved
   page gives lives beside it: `page_sold_out` (the year-on-year sell-out
   level, read via `sold_out_at()`) and `venue`. `state.have_tickets`
@@ -58,4 +61,4 @@ exposed by `cli.py`.
   it in `MatchRecord.news`, which beats any older source (`with_news`). Read
   about daily for a week; draws create matches with `source: draw`.
 - Each check also rebuilds the fixture event of every tracked match it didn't
-  read (`run._refresh_fixtures`), so a change in how events look reaches all.
+  read (`records.refresh_fixtures`), so a change in how events look reaches all.

@@ -1,8 +1,11 @@
 import json
-import subprocess
+import sys
 from datetime import datetime
 
-from albion_tickets.calendar_app import FakeCalendar, MacCalendar, alarm_minutes
+import pytest
+
+from albion_tickets import calendar_app
+from albion_tickets.calendar_app import CalendarError, Change, FakeCalendar, MacCalendar, alarm_minutes, remove, upsert
 from albion_tickets.config import TZ
 from albion_tickets.notices import Notice
 
@@ -13,63 +16,86 @@ def at(m, d, h=9, mi=0):
 
 N = Notice("sale:k", "🎟️ Brentford away: your sale", at(12, 4), at(12, 4, 9, 15),
            [at(12, 3, 19), at(12, 4, 8, 30)], "notes")
+F = Notice("fixture:k", "⚽ Fulham v Albion", at(12, 26, 15), at(12, 26, 17), [], "u",
+           location="Craven Cottage, Stevenage Road, London SW6 6HH, England", geo=(51.47485, -0.22164))
 
 
 def test_fake_upsert_then_update_keeps_uid():
     cal = FakeCalendar()
-    uid = cal.upsert(N, None)
-    assert cal.upsert(N, uid) == uid
-    assert len(cal.events) == 1 and cal.events[uid].title == N.title
+    uid = upsert(cal, N, None)
+    assert upsert(cal, N, uid) == uid and len(cal.events) == 1
 
 
 def test_fake_upsert_with_vanished_uid_creates_new():
     cal = FakeCalendar()
-    assert cal.upsert(N, "gone") != "gone"
+    assert upsert(cal, N, "gone") != "gone"
 
 
 def test_fake_remove_missing_is_noop():
-    FakeCalendar().remove("nothing")
+    remove(FakeCalendar(), "nothing")
 
 
 def test_alarm_minutes_relative_to_start():
     assert alarm_minutes(N) == [-840, -30]
 
 
-class Done:
-    def __init__(self, out):
-        self.returncode, self.stdout, self.stderr = 0, out, ""
+def stand_in(tmp_path, body: str) -> MacCalendar:
+    """A MacCalendar whose script is a small Python program: never the real calendar."""
+    script = tmp_path / "fake.py"
+    script.write_text("import json, sys, time\nreq = json.load(sys.stdin)\n" + body)
+    return MacCalendar("Albion tickets", [sys.executable, str(script)])
 
 
-def test_mac_payload_goes_via_stdin(monkeypatch):
-    seen = {}
-
-    def fake_run(args, **kw):
-        seen["args"], seen["input"] = args, kw["input"]
-        return Done("UID-1\n")
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    assert MacCalendar("Albion tickets").upsert(N, None) == "UID-1"
-    assert all("Brentford" not in a for a in seen["args"])
-    payload = json.loads(seen["input"])
-    assert payload["op"] == "upsert" and payload["title"] == N.title
-    assert payload["alarms"] == [-840, -30] and payload["calendar"] == "Albion tickets" and payload["location"] == ""
-    assert payload["start"] == int(at(12, 4).timestamp() * 1000)
-
-
-def test_mac_missing_calendar_message(monkeypatch):
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: Done("missing\n"))
-    msg = MacCalendar("Albion tickets").check_ready()
-    assert msg == 'Calendar "Albion tickets" not found — create it in Calendar.app under your iCloud account'
+def test_mac_sends_one_batch_with_location_and_pin(tmp_path):
+    seen = tmp_path / "seen.json"
+    cal = stand_in(tmp_path, f"open({str(seen)!r}, 'w').write(json.dumps(req))\n"
+                             "for i, op in enumerate(req['ops']):\n"
+                             "    print(json.dumps({'ok': True, 'uid': f'id{i}'}), flush=True)\n")
+    assert cal.apply([Change(None, N), Change("old", F), Change("x")]) == ["id0", "id1", "id2"]
+    req = json.loads(seen.read_text())
+    assert req["calendar"] == "Albion tickets"
+    sale, fixture, gone = req["ops"]
+    assert sale["op"] == "upsert" and sale["alarms"] == [-840, -30] and sale["geo"] is None
+    assert sale["start"] == int(at(12, 4).timestamp() * 1000)
+    assert fixture["uid"] == "old" and fixture["geo"] == [51.47485, -0.22164]
+    assert fixture["location"].startswith("Craven Cottage")
+    assert gone == {"op": "remove", "uid": "x"}
 
 
-def test_mac_failure_raises(monkeypatch):
-    class Bad(Done):
-        def __init__(self):
-            super().__init__("")
-            self.returncode, self.stderr = 1, "execution error"
+def test_mac_keeps_what_finished_when_a_batch_stalls(tmp_path, monkeypatch):
+    monkeypatch.setattr(calendar_app, "BASE_TIMEOUT_S", 1)
+    monkeypatch.setattr(calendar_app, "PER_CHANGE_S", 0)
+    cal = stand_in(tmp_path, "print(json.dumps({'ok': True, 'uid': 'made'}), flush=True)\ntime.sleep(30)\n")
+    first, second = cal.apply([Change(None, N), Change(None, F)])
+    assert first == "made"  # recorded, so never created twice
+    assert isinstance(second, CalendarError) and "did not finish" in str(second)
 
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: Bad())
-    import pytest
-    from albion_tickets.calendar_app import CalendarError
+
+def test_mac_reports_each_failure(tmp_path):
+    cal = stand_in(tmp_path, "print(json.dumps({'ok': False, 'error': 'event x is in another calendar'}))\n")
+    [result] = cal.apply([Change("x")])
+    assert isinstance(result, CalendarError) and "another calendar" in str(result)
     with pytest.raises(CalendarError):
-        MacCalendar("Albion tickets").upsert(N, None)
+        remove(cal, "x")
+
+
+def test_mac_missing_calendar_message(tmp_path):
+    cal = stand_in(tmp_path, "print(json.dumps({'ok': False, 'error': 'missing'}))\n")
+    assert "not found" in cal.check_ready()
+
+
+def test_mac_no_access_message(tmp_path):
+    cal = stand_in(tmp_path, "print(json.dumps({'ok': False, 'error': 'no full calendar access: allow it'}))\n")
+    assert "no full calendar access" in cal.check_ready()
+
+
+def test_mac_script_crash_is_an_error_not_a_hang(tmp_path):
+    cal = stand_in(tmp_path, "sys.stderr.write('boom'); sys.exit(1)\n")
+    [result] = cal.apply([Change(None, N)])
+    assert isinstance(result, CalendarError) and "boom" in str(result)
+
+
+def test_calendar_script_never_touches_other_calendars():
+    js = calendar_app.SCRIPT.read_text()
+    assert "in another calendar: refusing to touch it" in js
+    assert "calendarItemsWithExternalIdentifier" in js and "calendarIdentifier" in js

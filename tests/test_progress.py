@@ -23,7 +23,7 @@ def test_run_check_reports_each_slow_step(tmp_path, monkeypatch):
     assert "Reading the club's ticket news…" in lines
     reads = [l for l in lines if l.startswith("Reading article ")]
     assert reads and reads[0].startswith("Reading article 1/")
-    assert any(l.startswith("Updating the calendar 1/") for l in lines)
+    assert any(l.startswith("Updating the calendar (") for l in lines)
     assert not any("Would add" in l or "Adding" in l for l in lines)  # status only, no event list
 
 

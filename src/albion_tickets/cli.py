@@ -13,7 +13,7 @@ from .calendar_app import MacCalendar
 from .export import export as export_history
 from .fetch import polite_fetcher
 from .progress import Progress
-from .rules import decide
+from .rules import decide, sold_out_text
 from .run import run_check, run_import
 from .ticket_page import PdfError, parse_ticket_page, pdf_text
 from .store import StateError, load, save
@@ -143,8 +143,8 @@ def upcoming():
         notes = [_KIND.get(s.get("kind", ""), s.get("kind", "").replace("_", " "))]
         if key in state.have_tickets:
             notes = ["you have tickets"]
-        elif s.get("sold_out_stage"):
-            notes.append(f"sold out at {_tier(s['sold_out_stage'])}")
+        elif rec.sold_out_at():
+            notes = [sold_out_text(rec.sold_out_at())]
         if not s.get("kickoff_confirmed", True):
             notes.append("kick-off not confirmed")
         comp = "" if not s.get("home") else _COMP.get(s.get("competition", ""), s.get("competition", ""))
@@ -243,7 +243,7 @@ def _row(rec) -> list[str]:
         str(s["worth"]) if s.get("worth") is not None else "—",
         thresholds,
         _day(yours["opens"]) if yours else "—",
-        _tier(s.get("sold_out_stage")),
+        _tier(rec.sold_out_at()),
     ]
 
 
@@ -362,7 +362,9 @@ def _dim(text: str) -> str:
 @click.argument("files", nargs=-1, required=True,
                 type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option("--dry-run", is_flag=True, help="Show what would change; touch nothing.")
-def import_(files, dry_run):
+@click.option("--progress/--quiet", "show_progress", default=None,
+              help="Show a status line while it runs (default: only in a terminal).")
+def import_(files, dry_run, show_progress):
     """Read ticket pages you saved as PDFs (Away Games, Home Games).
 
     Open the page on the ticket site in your own browser, then File → Export
@@ -371,18 +373,29 @@ def import_(files, dry_run):
     league games.
     """
     now = datetime.now(config.TZ)
-    pages = []
-    for f in files:
-        try:
-            text = pdf_text(f)
-        except PdfError as exc:
-            raise click.ClickException(f"{f.name}: {exc}") from exc
-        result = parse_ticket_page(text, now.date(), f"From the ticket page you saved ({f.name}), "
-                                                     f"imported {now:%a} {now.day} {now:%b}")
-        if not result.matches:
-            raise click.ClickException(f"{f.name}: no fixtures found. Is it the Away Games or Home Games page?")
-        pages.append(result)
-    report = run_import(make_calendar(), pages, _state_path(), now, dry_run)
+    if show_progress is None:
+        show_progress = sys.stderr.isatty()
+    progress = Progress(sys.stderr) if show_progress else None
+    try:
+        pages = []
+        for i, f in enumerate(files, 1):
+            if progress:
+                count = f" ({i}/{len(files)})" if len(files) > 1 else ""
+                progress(f"Reviewing {f.name}{count}…")
+            try:
+                text = pdf_text(f)
+            except PdfError as exc:
+                raise click.ClickException(f"{f.name}: {exc}") from exc
+            result = parse_ticket_page(text, now.date(), f"From the ticket page you saved ({f.name}), "
+                                                         f"imported {now:%a} {now.day} {now:%b}")
+            if not result.matches:
+                raise click.ClickException(f"{f.name}: no fixtures found. Is it the Away Games or Home Games page?")
+            pages.append(result)
+        report = run_import(make_calendar(), pages, _state_path(), now, dry_run,
+                            **({"progress": progress} if progress else {}))
+    finally:
+        if progress:
+            progress.close()
     for err in report.errors:
         click.echo(f"Error: {err}", err=True)
     if report.errors and not report.imported:
@@ -401,7 +414,8 @@ def import_(files, dry_run):
                 note = "you have tickets"
             elif outcome is None:
                 sold = m.status.sold_out_to or m.status.sold_out_label_seen
-                note = "sold out" if sold else "on sale now" if m.on_sale_now else "no sale dates yet"
+                note = (sold_out_text(m.status.sold_out_to) if sold
+                        else "on sale now" if m.on_sale_now else "no sale dates yet")
             elif outcome.kind == "predicted_sale":
                 note = "predicted: brackets not announced"
             else:

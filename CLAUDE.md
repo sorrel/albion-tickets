@@ -41,3 +41,6 @@ Away/Home Games page as a PDF by hand, `ticket_page` reads it (PDFKit through
 article tracks, and `run._adopt_import` hands an imported match to its article
 by fixture day. `state.have_tickets` (set by `albion got`) keeps only the
 fixture and kick-off-change notices for a match.
+The sell-out level a saved page gives is kept in `MatchRecord.page_sold_out`,
+not `summary` (every check rebuilds that): it is the year-on-year record, and
+the club's news often never states it. Read it via `MatchRecord.sold_out_at()`.

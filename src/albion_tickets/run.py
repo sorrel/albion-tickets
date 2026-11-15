@@ -22,7 +22,7 @@ from .fetch import FetchResult
 from .model import Match
 from .notices import SOON, Notice, change_notices, check_this, notices_for, points_due
 from .parse_article import is_tracked, parse_article
-from .rules import Outcome, decide
+from .rules import Outcome, decide, sold_out_text
 from .store import State, load, observe, save, snapshot
 from .ticket_page import PageResult
 
@@ -273,13 +273,14 @@ def _adopt_import(state: State, m: Match, owners_ok: set[str]) -> None:
 
 
 def run_import(cal: Calendar, pages: list[PageResult], state_path: Path, now: datetime,
-               dry_run: bool) -> Report:
+               dry_run: bool, progress: Callable[[str], None] = _silent) -> Report:
     """Matches from ticket pages the user saved by hand → records and calendar events.
 
     The club's news stays in charge: a match already tracked from an article is
     left alone. Nothing is ever removed here, so an import can only add.
     """
     report = Report()
+    progress("Checking the calendar is ready (macOS may ask to allow this)…")
     problem = cal.check_ready()
     if problem:
         report.errors.append(problem)
@@ -301,7 +302,10 @@ def run_import(cal: Calendar, pages: list[PageResult], state_path: Path, now: da
                 continue
             existing = m.key if m.key in state.matches else same_fixture(state, m)
             if existing and state.matches[existing].summary.get("source") != "import":
-                report.skipped.append(f"{name}: already tracked from the club's news")
+                st = m.status
+                page = f"; the page says {sold_out_text(st.sold_out_to)}" if st.sold_out_to else ""
+                report.skipped.append(f"{name}: already tracked from the club's news{page}")
+                _remember_sold_out(state.matches[existing], m, now)
                 continue
             if existing and existing != m.key:
                 state.matches[m.key] = state.matches.pop(existing)
@@ -315,14 +319,21 @@ def run_import(cal: Calendar, pages: list[PageResult], state_path: Path, now: da
             else:  # sold out, or no dates yet: the fixture alone, never a "check this"
                 found = _fixture_only(state, m, now, report)
             notices.extend(found)
+            _remember_sold_out(state.matches[m.key], m, now)
             report.imported.append(m.key)
     upcoming = sorted((n for n in notices if n.key.startswith("sale:") and n.alarms and n.start > now),
                       key=lambda n: n.start)
     report.next_sale = upcoming[0].title if upcoming else None
-    _sync(cal, state, notices, retired, dry_run, report)
+    _sync(cal, state, notices, retired, dry_run, report, progress)
     if not dry_run:
         save(state, state_path)
     return report
+
+
+def _remember_sold_out(rec, m: Match, now: datetime) -> None:
+    label = m.status.sold_out_to
+    if label and rec.page_sold_out.get("label") != label:
+        rec.page_sold_out = {"label": label, "seen": now.isoformat()}
 
 
 def _fixture_only(state: State, m: Match, now: datetime, report: Report) -> list[Notice]:

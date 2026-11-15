@@ -37,10 +37,13 @@ def match_cells(key: str, rec: MatchRecord) -> list[str]:
     """The Match, Comp and Kick-off cells every match table shares."""
     s = rec.summary
     kickoff = rec.kickoffs[-1][0] if rec.kickoffs else None
-    unconfirmed = "" if s.get("kickoff_confirmed", True) else "?"
-    return [f"{s.get('opponent', key)} ({'H' if s.get('home') else 'A'})",
-            comp(s.get("competition", "")),
-            when(kickoff) + unconfirmed]
+    if rec.news.get("postponed"):
+        kickoff_cell = "postponed"
+    else:  # "?" marks a date or time the club hasn't fixed yet
+        unsure = not (s.get("kickoff_confirmed", True) and s.get("date_confirmed", True))
+        kickoff_cell = when(kickoff) + ("?" if unsure else "")
+    return [f"{s.get('opponent', key)} ({'H' if s.get('home') else 'A'})", comp(s.get("competition", "")),
+            kickoff_cell]
 
 
 def table(rows: list[list[str]], header: list[str], styles: list[dict] | None = None) -> str:

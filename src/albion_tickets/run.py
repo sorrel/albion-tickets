@@ -17,11 +17,12 @@ from urllib.parse import urlsplit
 
 from . import config
 from .calendar_app import Calendar, CalendarError, Change
-from .discover import article_count, ticket_articles
+from . import news_updates
+from .discover import FIXTURE_NEWS, TICKET_NEWS, article_count, articles
 from .fetch import FetchResult
 from .model import Match, Status
 from .notices import SOON, Notice, change_notices, check_this, notices_for, points_due
-from .parse_article import is_tracked, parse_article
+from .parse_article import article_text, is_tracked, parse_article
 from .rules import Outcome, decide, sold_out_text
 from .store import State, load, observe, save, snapshot
 from . import venues
@@ -73,6 +74,8 @@ def _slug(url: str) -> str:
 
 
 def _active(info: dict, state: State, now: datetime) -> bool:
+    if info.get("kind") == "fixture":
+        return news_updates.due(info, now)
     if info.get("untracked"):  # read once: only home league games, which the season ticket covers
         return False
     keys = info.get("matches", [])
@@ -109,10 +112,12 @@ def run_check(cal: Calendar, fetcher: Callable[[str], FetchResult], state_path: 
     notices: list[Notice] = []
     owners_ok: set[str] = set()
     active = [(url, info) for url, info in list(state.articles.items()) if _active(info, state, now)]
+    active.sort(key=lambda a: a[1].get("kind") != "fixture")  # fixture news first: ticket articles defer to it
     for i, (url, info) in enumerate(active, 1):
         progress(f"Reading article {i}/{len(active)}: {info.get('title') or _slug(url)}…")
         try:
-            _read_article(state, url, info, fetcher, now, dry_run, notices, owners_ok, report)
+            read = _read_fixture_news if info.get("kind") == "fixture" else _read_article
+            read(state, url, info, fetcher, now, dry_run, notices, owners_ok, report)
         except Exception as exc:  # one broken article must not block the others
             report.errors.append(f"{_slug(url)}: {type(exc).__name__}: {exc}")
 
@@ -151,7 +156,7 @@ def _refresh_fixtures(state: State, notices: list[Notice], owners_ok: set[str], 
     out: list[Notice] = []
     for key, rec in state.matches.items():
         fixture = f"fixture:{key}"
-        from_page = rec.summary.get("source") == "import"
+        from_page = rec.summary.get("source") in ("import", "draw")  # never retired by an article
         if fixture in produced or key in owners_ok or not rec.kickoffs:
             continue
         if fixture not in state.events and not from_page:
@@ -162,7 +167,8 @@ def _refresh_fixtures(state: State, notices: list[Notice], owners_ok: set[str], 
         s = rec.summary
         m = Match(key, s.get("opponent", key), s.get("home", False), s.get("competition", ""), kickoff,
                   s.get("kickoff_confirmed", True), [], Status(), s.get("worth"), s.get("url", ""),
-                  venue=rec.venue)
+                  venue=rec.venue, date_confirmed=s.get("date_confirmed", True))
+        m = news_updates.with_news(m, rec, None)
         built = notices_for(m, Outcome("unreadable", None, None), state.points, now, None, None)
         out.extend(_located([n for n in built if n.key == fixture], state, m))
     return out
@@ -190,9 +196,26 @@ def _discover(state: State, fetcher, report: Report, progress: Callable[[str], N
         if article_count(res.body) == 0:
             report.errors.append(f"listing {path}: no articles found (has the page format changed?)")
             continue
-        for ref in ticket_articles(res.body):
-            state.articles.setdefault(ref.url, {"title": ref.title, "published": ref.published.isoformat(),
-                                                "matches": []})
+        for category, kind in ((TICKET_NEWS, "ticket"), (FIXTURE_NEWS, "fixture")):
+            for ref in articles(res.body, category):
+                state.articles.setdefault(ref.url, {"title": ref.title, "published": ref.published.isoformat(),
+                                                    "matches": [], "kind": kind})
+
+
+def _read_fixture_news(state: State, url: str, info: dict, fetcher, now: datetime, dry_run: bool,
+                       notices: list[Notice], owners_ok: set[str], report: Report) -> None:
+    """A Fixture News article: moves, postponements and draws, recorded on the matches."""
+    res = fetcher(url)
+    if not res.ok:
+        report.errors.append(f"{_slug(url)}: {res.error or res.status}")
+        return
+    text = article_text(res.body, _slug(url))
+    if text is None:
+        first = _dt(info.setdefault("first_problem", now.isoformat()))
+        notices.append(check_this(f"check:{_slug(url)}", url, info["title"], first, None,
+                                  "couldn't find the article text on the page"))
+        return
+    notices.extend(news_updates.apply(state, url, info, text, now, report.changes))
 
 
 def _read_article(state: State, url: str, info: dict, fetcher, now: datetime, dry_run: bool,
@@ -236,11 +259,16 @@ def _read_article(state: State, url: str, info: dict, fetcher, now: datetime, dr
         if is_tracked(m):
             _adopt_import(state, m, owners_ok)
             owners_ok.add(m.key)
-            notices.extend(_match_notices(state, m, now, report))
+            notices.extend(_match_notices(state, m, now, report, published))
 
 
-def _match_notices(state: State, m: Match, now: datetime, report: Report) -> list[Notice]:
+def _match_notices(state: State, m: Match, now: datetime, report: Report,
+                   published: date | None = None) -> list[Notice]:
+    """Notices for a match read from a ticket article or saved page published on `published`."""
     rec = state.matches.get(m.key)
+    m = news_updates.with_news(m, rec, published)
+    if rec and rec.summary.get("source") == "draw":
+        rec.kickoffs.clear()  # the draw's provisional date: the real one is not a "move"
     first = rec.first_sold_out_seen if rec else None
     provisional = decide(m, state.points, now, _dt(first))
     changes = observe(state, m, provisional.opens, now)
@@ -347,7 +375,7 @@ def run_import(cal: Calendar, pages: list[PageResult], state_path: Path, now: da
                 report.skipped.append(f"{name}: already played")
                 continue
             existing = m.key if m.key in state.matches else same_fixture(state, m)
-            if existing and state.matches[existing].summary.get("source") != "import":
+            if existing and state.matches[existing].summary.get("source") not in ("import", "draw"):
                 st = m.status
                 page = f"; the page says {sold_out_text(st.sold_out_to)}" if st.sold_out_to else ""
                 report.skipped.append(f"{name}: already tracked from the club's news{page}")
@@ -360,7 +388,7 @@ def run_import(cal: Calendar, pages: list[PageResult], state_path: Path, now: da
                     state.have_tickets.discard(existing)
                     state.have_tickets.add(m.key)
             if m.stages:
-                found = _match_notices(state, m, now, report)
+                found = _match_notices(state, m, now, report, now.date())
                 state.matches[m.key].summary["source"] = "import"
             else:  # sold out, or no dates yet: the fixture alone, never a "check this"
                 found = _fixture_only(state, m, now, report)

@@ -36,6 +36,9 @@ class MatchRecord:
     # matters year on year and the club's news often never states it.
     page_sold_out: dict[str, str] = field(default_factory=dict)
     venue: str | None = None  # the ground a saved ticket page gave for this match
+    # The latest Fixture News about this match: {published, url, and kickoff +
+    # confirmed, or postponed}. It wins over any source published before it.
+    news: dict[str, str] = field(default_factory=dict)
 
     def sold_out_at(self) -> str | None:
         return self.summary.get("sold_out_stage") or self.page_sold_out.get("label")
@@ -80,6 +83,7 @@ def load(path: Path) -> State:
                 summary=v.get("summary", {}),
                 page_sold_out=v.get("page_sold_out", {}),
                 venue=v.get("venue"),
+                news=v.get("news", {}),
             ) for k, v in raw.get("matches", {}).items()},
             events=raw.get("events", {}),
             dismissed=set(raw.get("dismissed", [])),

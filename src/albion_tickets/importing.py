@@ -1,5 +1,8 @@
 """`albion import`: matches from ticket pages the user saved by hand → records and calendar events.
 
+Away games and cup ties get their sale reminders; home league games (the
+season ticket covers them) only their fixture, so the calendar has every match.
+
 The club's news stays in charge: a match already tracked from an article is
 left alone, apart from what only the saved page says (sell-out level, ground).
 Nothing is ever removed here, so an import can only add.
@@ -10,8 +13,7 @@ from pathlib import Path
 from .calendar_app import Calendar
 from .model import Match, short_name
 from .notices import Notice
-from .parse_article import is_tracked
-from .records import FROM_PAGE, fixture_only, match_notices, rename, same_fixture
+from .records import FROM_PAGE, fixture_only, match_notices, rename, same_fixture, season_ticket
 from .rules import sold_out_text
 from .store import State, save
 from .sync import Progress, Report, begin, next_sale, silent, sync
@@ -27,7 +29,7 @@ def run_import(cal: Calendar, pages: list[PageResult], state_path: Path, now: da
     retired: set[str] = set()  # old keys of records renamed here: their events give way to the new ones
     for page in pages:
         report.skipped.extend(f"{s}: not a match" for s in page.skipped)
-        for m in filter(is_tracked, page.matches):  # home league games: the season ticket covers them
+        for m in page.matches:
             notices.extend(_import(state, m, now, report, retired))
     report.next_sale = next_sale(state, notices, now)
     sync(cal, state, notices, retired, dry_run, report, progress)
@@ -50,10 +52,10 @@ def _import(state: State, m: Match, now: datetime, report: Report, retired: set[
     if existing and existing != m.key:
         rename(state, existing, m.key)
         retired.add(existing)
-    if m.stages:
+    if m.stages and not season_ticket(m):
         found = match_notices(state, m, now, report, now.date())
         state.matches[m.key].summary["source"] = "import"
-    else:  # sold out, or no dates yet: the fixture alone, never a "check this"
+    else:  # season ticket, sold out, or no dates yet: the fixture alone, never a "check this"
         found = fixture_only(state, m, now, report)
     _remember_page(state, m.key, m, now)
     report.imported.append(m.key)

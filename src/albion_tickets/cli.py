@@ -22,6 +22,7 @@ from .history import render as render_history
 from .importing import run_import
 from .model import Match, short_name
 from .progress import Progress
+from .records import season_ticket
 from .rules import decide, sold_out_text
 from .run import run_check
 from .store import State, StateError, load, save
@@ -212,8 +213,8 @@ def import_(files, dry_run, show_progress):
 
     Open the page on the ticket site in your own browser, then File → Export
     as PDF (or Print → Save as PDF). The tool itself never visits that site.
-    Only away games and home cup ties are kept: the season ticket covers home
-    league games.
+    Away games and home cup ties get sale reminders; home league games (the
+    season ticket covers them) only their fixture.
     """
     now = datetime.now(config.TZ)
     with _progress(show_progress) as progress:
@@ -257,8 +258,10 @@ def _read_page(f: Path, i: int, of: int, now: datetime, progress) -> PageResult:
 
 def _imported_row(m: Match, state: State, now: datetime) -> list[str]:
     """Your sale, match, kick-off, and a note on where it stands."""
-    outcome = decide(m, state.points, now, None) if m.stages else None
-    if m.key in state.have_tickets:
+    outcome = decide(m, state.points, now, None) if m.stages and not season_ticket(m) else None
+    if season_ticket(m):
+        note = "season ticket"
+    elif m.key in state.have_tickets:
         note = "you have tickets"
     elif outcome is not None:
         note = _NOTE.get(outcome.kind, outcome.kind.replace("_", " "))

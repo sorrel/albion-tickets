@@ -199,3 +199,20 @@ def test_upcoming_shows_postponed_and_provisional_dates(state_path):
     out = CliRunner().invoke(cli.cli, ["upcoming"]).output
     assert next(l for l in out.splitlines() if l.startswith("Wrexham (A)")).rstrip().endswith("15:00?")
     assert "postponed" in next(l for l in out.splitlines() if l.startswith("Fulham (A)"))
+
+
+def test_a_tv_move_reaches_a_home_league_game_but_not_the_away_one(state_path):
+    """The season-ticket games are in the calendar too, so their TV moves count."""
+    home = ("2026-27-brentford-h-premier-league", "Brentford", True, "Premier League", "2026-11-07T15:00:00+00:00")
+    away = ("2026-27-brentford-a-premier-league", "Brentford", False, "Premier League", "2027-01-16T15:00:00+00:00")
+    tracked(state_path, home, away)
+    s = load(state_path)
+    s.matches[home[0]].summary["kind"] = "season_ticket"
+    save(s, state_path)
+    cal = FakeCalendar()
+    run_check(cal, Fetcher(pages(NOV_PAGE)), state_path, datetime(2026, 9, 22, 9, tzinfo=TZ), dry_run=False)
+    events = fixtures(cal)
+    assert events[f"fixture:{home[0]}"].start == datetime(2026, 11, 8, 14, tzinfo=TZ)
+    assert events[f"fixture:{home[0]}"].location.startswith("American Express Stadium")
+    assert events[f"fixture:{away[0]}"].start == datetime(2027, 1, 16, 15, tzinfo=TZ)  # the away game hasn't moved
+    assert events[f"fixture:{away[0]}"].location.startswith("Gtech Community Stadium")

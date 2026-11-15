@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 
 from . import venues
 from .display import day, dim, match_cells, table, title, when
+from .records import SEASON_TICKET
 from .rules import sold_out_text
 from .store import MatchRecord, State
 
@@ -50,6 +51,7 @@ def _soon(rec: MatchRecord, now: datetime) -> dict:
 SECTIONS: dict[str, Section] = {  # in display order
     "tickets": Section("You have tickets", ["Match", "Comp", "Kick-off", "Ground"], tail=_ground,
                        style=lambda rec, now: {"fg": "green", "bold": True}),
+    "season": Section("Season ticket · home league", ["Match", "Comp", "Kick-off"]),
     "to_come": Section("Sales to come", ["Your sale", "Match", "Comp", "Kick-off", "Note"],
                        lead=lambda key, rec: [when(rec.summary["opens"])],
                        tail=lambda key, rec: ["predicted" if rec.summary.get("kind") == "predicted_sale" else ""],
@@ -74,6 +76,8 @@ def section_of(key: str, rec: MatchRecord, state: State, now: datetime) -> str:
     opens = rec.summary.get("opens")
     if key in state.have_tickets:
         return "tickets"
+    if kind == SEASON_TICKET:
+        return "season"
     if kind == "unreadable":
         return "look"
     if kind in _SALE and opens and datetime.fromisoformat(opens) > now:

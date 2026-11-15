@@ -5,7 +5,7 @@ from albion_tickets import cli as cli_mod
 from albion_tickets.calendar_app import FakeCalendar
 from albion_tickets.fetch import FetchResult
 from albion_tickets.rules import sold_out_tier
-from albion_tickets.store import load, save
+from albion_tickets.store import MatchRecord, load, save
 
 
 @pytest.fixture
@@ -84,7 +84,7 @@ def _match(opponent, opens, kickoff):
 def _sections(out: str) -> dict[str, str]:
     """`albion upcoming` output → {section title: its text}."""
     import re
-    parts = re.split(r"^(You have tickets|Sales to come[^\n]*|On sale now|Sold out|No sale dates yet|Needs a look)$",
+    parts = re.split(r"^(You have tickets|Season ticket · home league|Sales to come[^\n]*|On sale now|Sold out|No sale dates yet|Needs a look)$",
                      out, flags=re.M)
     return {t.split(" ·")[0]: body for t, body in zip(parts[1::2], parts[2::2])}
 
@@ -141,3 +141,15 @@ def test_sold_out_tier_names_the_widest_group():
         == "Purchase history"
     assert sold_out_tier("All MyAlbion+ Members") == "MyAlbion+"
     assert sold_out_tier("STHs/1901 Club Members w/ 239+ Points") == "239+"
+
+
+def test_home_league_games_have_their_own_section_and_stay_out_of_history(env):
+    run("points", "184")
+    s = load(env / "state.json")
+    s.matches["2026-27-everton-h-premier-league"] = MatchRecord(
+        kickoffs=[("2099-12-13T14:00:00+00:00", "x")],
+        summary={"opponent": "Everton", "home": True, "competition": "Premier League", "kind": "season_ticket"})
+    save(s, env / "state.json")
+    sections = _sections(run("upcoming").output)
+    assert "Everton (H)" in sections["Season ticket"]
+    assert "Everton" not in run("history", "--all").output

@@ -10,10 +10,14 @@ morning. It never logs in, never touches the ticket site and never buys.
 ## Setup
 
 1. In Calendar.app, create an **Albion tickets** calendar under iCloud.
-2. `uv sync` then `uv run albion points <your points>`
-3. `uv run albion check --dry-run`, then `uv run albion check`
-   (macOS asks once to let it control Calendar).
-4. `launchd/install.sh` to check every two hours, 07:00–22:00.
+2. `uv sync`, then `uv run albion points <your points>`.
+3. `uv run albion check --dry-run`, then `uv run albion check`. Allow **full
+   calendar access** when macOS asks. Only the Albion tickets calendar is
+   ever changed.
+4. `launchd/install.sh` checks every two hours, 07:00–22:00. If a scheduled
+   run asks for calendar access too, allow it.
+
+Each match appears with its ground pinned on a map.
 
 ## Commands
 
@@ -31,13 +35,10 @@ morning. It never logs in, never touches the ticket site and never buys.
 
 ### Saved ticket pages
 
-The ticket site lists sale dates weeks before the club's news does. The tool
-never visits that site (it guards against bots, and your season ticket is
-on that account). Instead, open its Away Games or Home Games page in your own
-browser, save it as a PDF, and run `albion import` on the file. Only away
-games and home cup ties are kept. A match already tracked from the news is
-left alone. Once the club publishes the match's ticket news, `albion check`
-takes over the imported match.
+The ticket site lists sale dates weeks before the club's news, but the tool
+never visits it. Save its Away Games or Home Games page as a PDF in your own
+browser and run `albion import` on it. Away games and home cup ties are kept;
+the club's news takes over each match once it covers it.
 
 Your points and history stay in `data/` on your Mac, with a daily copy in
 `data/backups/`.

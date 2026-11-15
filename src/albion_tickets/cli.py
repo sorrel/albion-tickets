@@ -10,6 +10,7 @@ import click
 
 from . import config
 from .calendar_app import MacCalendar
+from .calendar_app import remove as remove_event
 from .export import export as export_history
 from .fetch import polite_fetcher
 from .progress import Progress
@@ -496,7 +497,7 @@ def got(match, undo):
     removed, failed = 0, []
     for ev_key in [k for k in state.events if k.split(":", 1)[0] in _REMINDERS and k.split(":", 1)[1] == key]:
         try:
-            cal.remove(state.events[ev_key]["uid"])
+            remove_event(cal, state.events[ev_key]["uid"])
         except Exception as exc:  # keep going: the next check retires what's left
             failed.append(f"{ev_key}: {exc}")
             continue

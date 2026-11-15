@@ -16,10 +16,10 @@ from typing import Callable
 from urllib.parse import urlsplit
 
 from . import config
-from .calendar_app import Calendar, CalendarError
+from .calendar_app import Calendar, CalendarError, Change
 from .discover import article_count, ticket_articles
 from .fetch import FetchResult
-from .model import Match
+from .model import Match, Status
 from .notices import SOON, Notice, change_notices, check_this, notices_for, points_due
 from .parse_article import is_tracked, parse_article
 from .rules import Outcome, decide, sold_out_text
@@ -49,6 +49,8 @@ def _fingerprint(n: Notice) -> str:
     parts = [n.title, n.start.isoformat(), n.end.isoformat(), [a.isoformat() for a in n.alarms], n.notes]
     if n.location:  # only when set, so events without one keep their fingerprint
         parts.append(n.location)
+    if n.geo:
+        parts.append(list(n.geo))
     raw = json.dumps(parts)
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
@@ -114,6 +116,7 @@ def run_check(cal: Calendar, fetcher: Callable[[str], FetchResult], state_path: 
         except Exception as exc:  # one broken article must not block the others
             report.errors.append(f"{_slug(url)}: {type(exc).__name__}: {exc}")
 
+    notices.extend(_refresh_fixtures(state, notices, owners_ok, now))
     notices.extend(_points_due(state, now))
 
     state.failing_runs = state.failing_runs + 1 if report.errors else 0
@@ -134,6 +137,35 @@ def run_check(cal: Calendar, fetcher: Callable[[str], FetchResult], state_path: 
         state.last_check = now.isoformat()
         save(state, state_path)
     return report
+
+
+def _refresh_fixtures(state: State, notices: list[Notice], owners_ok: set[str], now: datetime) -> list[Notice]:
+    """Match events this run didn't produce (imported matches, articles no longer
+    read), rebuilt from their records so a change in how events look reaches
+    every match. For matches from the club's news only events that exist are
+    refreshed, so one an article retired is never brought back. A match from a
+    saved page is never retired that way, so its event is also written if an
+    earlier attempt failed. A match an article read this run covers
+    (owners_ok) is left to that article, including dropping it."""
+    produced = {n.key for n in notices}
+    out: list[Notice] = []
+    for key, rec in state.matches.items():
+        fixture = f"fixture:{key}"
+        from_page = rec.summary.get("source") == "import"
+        if fixture in produced or key in owners_ok or not rec.kickoffs:
+            continue
+        if fixture not in state.events and not from_page:
+            continue
+        kickoff = datetime.fromisoformat(rec.kickoffs[-1][0])
+        if kickoff + KEEP_TRACKING < now:
+            continue
+        s = rec.summary
+        m = Match(key, s.get("opponent", key), s.get("home", False), s.get("competition", ""), kickoff,
+                  s.get("kickoff_confirmed", True), [], Status(), s.get("worth"), s.get("url", ""),
+                  venue=rec.venue)
+        built = notices_for(m, Outcome("unreadable", None, None), state.points, now, None, None)
+        out.extend(_located([n for n in built if n.key == fixture], state, m))
+    return out
 
 
 def _points_due(state: State, now: datetime) -> list[Notice]:
@@ -245,7 +277,11 @@ def _located(notices: list[Notice], state: State, m: Match) -> list[Notice]:
     """Give the fixture event its ground."""
     rec = state.matches.get(m.key)
     where = venues.location(m.opponent, m.home, m.venue or (rec.venue if rec else None), state.venues)
-    return [replace(n, location=where) if n.key.startswith("fixture:") and where else n for n in notices]
+    if where is None:
+        return notices
+    geo = (where.lat, where.lon) if where.lat is not None else None
+    return [replace(n, location=where.address, geo=geo) if n.key.startswith("fixture:") else n
+            for n in notices]
 
 
 KEEP_WITH_TICKETS = {"fixture", "kickoff_moved"}  # with a ticket in hand, sale news is noise
@@ -384,42 +420,48 @@ def _owner(key: str, state: State) -> str:
 
 def _sync(cal: Calendar, state: State, notices: list[Notice], owners_ok: set[str],
           dry_run: bool, report: Report, progress: Callable[[str], None] = _silent) -> None:
+    """Bring the calendar in line, in one batch. Only what succeeded is recorded or
+    reported: a failed change keeps its old fingerprint and is retried next time."""
     notices = [n for n in notices if n.key not in state.dismissed]
     wanted = {n.key for n in notices}
-    to_write = []
+    writes: list[tuple[Notice, dict | None, str]] = []
     for n in notices:
         existing = state.events.get(n.key)
         fp = _fingerprint(n)
         if existing and (existing.get("fp") == fp or existing.get("one_shot")):
             continue
-        (report.updated if existing else report.created).append(f"{_when(n.start)} · {n.title}")
-        to_write.append((n, existing, fp))
-    to_remove = []
+        writes.append((n, existing, fp))
+    writes.sort(key=lambda w: w[0].start)  # so the report reads in date order
+    removals: list[tuple[str, dict]] = []
     for key, ev in list(state.events.items()):
         owner = ev.get("owner")
         if key in wanted or ev.get("one_shot") or owner not in owners_ok:
             continue
         if f"check:{owner}" in wanted:  # something needs a look: keep what we had meanwhile
             continue
-        report.removed.append(f"{_when(ev.get('start'))} · {ev.get('title', key)}")
-        to_remove.append((key, ev))
+        removals.append((key, ev))
+
+    line = lambda start, title: f"{_when(start)} · {title}"
     if dry_run:
+        for n, existing, _ in writes:
+            (report.updated if existing else report.created).append(line(n.start, n.title))
+        report.removed.extend(line(ev.get("start"), ev.get("title", key)) for key, ev in removals)
         return
-    total = len(to_write) + len(to_remove)
-    for i, (n, existing, fp) in enumerate(to_write, 1):
-        progress(f"Updating the calendar {i}/{total}…")
-        try:
-            uid = cal.upsert(n, existing["uid"] if existing else None)
-        except CalendarError as exc:
-            report.errors.append(f"calendar: {n.key}: {exc}")
+    changes = [Change(existing["uid"] if existing else None, n) for n, existing, _ in writes]
+    changes += [Change(ev["uid"]) for _, ev in removals]
+    if changes:
+        progress(f"Updating the calendar ({len(changes)} {'change' if len(changes) == 1 else 'changes'})…")
+    results = cal.apply(changes) if changes else []
+    for (n, existing, fp), result in zip(writes, results):
+        if isinstance(result, CalendarError):
+            report.errors.append(f"calendar: {n.key}: {result}")
             continue
-        state.events[n.key] = {"uid": uid, "owner": _owner(n.key, state), "one_shot": n.one_shot, "fp": fp,
+        (report.updated if existing else report.created).append(line(n.start, n.title))
+        state.events[n.key] = {"uid": result, "owner": _owner(n.key, state), "one_shot": n.one_shot, "fp": fp,
                                "start": n.start.isoformat(), "title": n.title}
-    for i, (key, ev) in enumerate(to_remove, len(to_write) + 1):
-        progress(f"Updating the calendar {i}/{total}…")
-        try:
-            cal.remove(ev["uid"])
-        except CalendarError as exc:
-            report.errors.append(f"calendar: remove {key}: {exc}")
+    for (key, ev), result in zip(removals, results[len(writes):]):
+        if isinstance(result, CalendarError):
+            report.errors.append(f"calendar: remove {key}: {result}")
             continue
+        report.removed.append(line(ev.get("start"), ev.get("title", key)))
         del state.events[key]

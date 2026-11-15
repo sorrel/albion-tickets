@@ -210,3 +210,68 @@ def test_article_without_a_match_heading_quotes_its_opening(state_path):
     report = run_check(FakeCalendar(), Fetcher(table), state_path, NOW, dry_run=True)
     (line,) = [l for l in report.needs_look if l.startswith("Fulham")]
     assert line.startswith("Fulham ticket information (couldn't tell which match it's about; it starts “")
+
+
+# --- calendar writes (November 2026: timeouts, stale imported events) ------
+
+class FlakyCalendar(FakeCalendar):
+    """Fails every change whose title contains `bad`."""
+    def __init__(self, bad):
+        super().__init__()
+        self.bad = bad
+
+    def apply(self, changes):
+        from albion_tickets.calendar_app import CalendarError
+        ok = [c for c in changes if not (c.notice and self.bad in c.notice.title)]
+        done = iter(super().apply(ok))
+        return [CalendarError("did not finish") if c not in ok else next(done) for c in changes]
+
+
+def test_one_batch_per_check(state_path):
+    cal = FakeCalendar()
+    run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
+    assert len(cal.batches) == 1 and cal.batches[0] > 1
+
+
+def test_only_successful_changes_are_counted_and_failures_retry(state_path):
+    cal = FlakyCalendar("Fulham")
+    report = run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
+    assert not any("Fulham" in line for line in report.created)
+    assert any("fulham" in e for e in report.errors)
+    cal.bad = "nothing"
+    again = run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
+    assert any("Fulham" in line for line in again.created)
+
+
+def test_check_refreshes_events_of_matches_it_did_not_read(state_path):
+    s = load(state_path)
+    from albion_tickets.store import MatchRecord
+    s.matches["2026-27-arsenal-a-premier-league"] = MatchRecord(
+        kickoffs=[("2027-05-30T14:00:00+01:00", "x")],
+        summary={"opponent": "Arsenal", "home": False, "competition": "Premier League", "url": "saved page"})
+    s.events["fixture:2026-27-arsenal-a-premier-league"] = {
+        "uid": "u1", "owner": "2026-27-arsenal-a-premier-league", "one_shot": False, "fp": "old",
+        "start": "2027-05-30T14:00:00+01:00", "title": "Arsenal v Albion"}
+    s.matches["2026-27-everton-a-premier-league"] = MatchRecord(  # its event was retired: stays retired
+        kickoffs=[("2027-04-24T15:00:00+01:00", "x")], summary={"opponent": "Everton", "home": False})
+    save(s, state_path)
+    cal = FakeCalendar()
+    cal.events["u1"] = None  # the event as it stands in the calendar
+    run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
+    arsenal = cal.events["u1"]
+    assert arsenal.title == "⚽ Arsenal v Albion" and arsenal.geo == (51.55509, -0.10845)
+    assert not any("Everton" in n.title for n in cal.events.values())
+
+
+def test_check_writes_a_saved_page_match_whose_event_never_landed(state_path):
+    s = load(state_path)
+    from albion_tickets.store import MatchRecord
+    s.matches["2026-27-hull-city-a-premier-league"] = MatchRecord(
+        kickoffs=[("2026-11-22T14:00:00+00:00", "x")],
+        summary={"opponent": "Hull City", "home": False, "competition": "Premier League",
+                 "url": "saved page", "source": "import"})
+    save(s, state_path)
+    cal = FakeCalendar()
+    run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
+    hull = next(n for n in cal.events.values() if n.key == "fixture:2026-27-hull-city-a-premier-league")
+    assert hull.title == "⚽ Hull City v Albion" and hull.location.startswith("MKM Stadium")

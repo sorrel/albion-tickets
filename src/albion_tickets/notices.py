@@ -28,7 +28,8 @@ class Notice:
     notes: str = ""
     one_shot: bool = False
     why: str = ""  # for "check this": what the tool couldn't make sense of
-    location: str = ""  # fixture events: the ground
+    location: str = ""  # fixture events: the ground's address
+    geo: tuple[float, float] | None = None  # and its map pin, when known
 
 
 def _when(dt: datetime) -> str:

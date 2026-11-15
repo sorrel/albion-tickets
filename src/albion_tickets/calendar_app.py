@@ -80,7 +80,7 @@ class MacCalendar:
         result = self._call({
             "op": "upsert", "uid": uid, "title": n.title, "notes": n.notes,
             "start": int(n.start.timestamp() * 1000), "end": int(n.end.timestamp() * 1000),
-            "alarms": alarm_minutes(n),
+            "alarms": alarm_minutes(n), "location": n.location,
         })
         if not result or result == "missing":
             raise CalendarError(f"upsert of {n.key} failed: {result!r}")

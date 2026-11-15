@@ -52,7 +52,7 @@ def test_mac_payload_goes_via_stdin(monkeypatch):
     assert all("Brentford" not in a for a in seen["args"])
     payload = json.loads(seen["input"])
     assert payload["op"] == "upsert" and payload["title"] == N.title
-    assert payload["alarms"] == [-840, -30] and payload["calendar"] == "Albion tickets"
+    assert payload["alarms"] == [-840, -30] and payload["calendar"] == "Albion tickets" and payload["location"] == ""
     assert payload["start"] == int(at(12, 4).timestamp() * 1000)
 
 

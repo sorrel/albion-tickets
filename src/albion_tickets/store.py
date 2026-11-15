@@ -35,6 +35,7 @@ class MatchRecord:
     # from summary, which every check rebuilds, because it is the record that
     # matters year on year and the club's news often never states it.
     page_sold_out: dict[str, str] = field(default_factory=dict)
+    venue: str | None = None  # the ground a saved ticket page gave for this match
 
     def sold_out_at(self) -> str | None:
         return self.summary.get("sold_out_stage") or self.page_sold_out.get("label")
@@ -51,6 +52,7 @@ class State:
     export_dir: str | None = None  # where `albion export` copies the history after each check
     last_check: str | None = None  # when a (non-dry) check last read the club's news
     have_tickets: set[str] = field(default_factory=set)  # match keys: no sale reminders for these
+    venues: dict[str, str] = field(default_factory=dict)  # opponent → ground, learnt from saved pages
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,7 @@ def load(path: Path) -> State:
                 last_seen=v.get("last_seen", ""),
                 summary=v.get("summary", {}),
                 page_sold_out=v.get("page_sold_out", {}),
+                venue=v.get("venue"),
             ) for k, v in raw.get("matches", {}).items()},
             events=raw.get("events", {}),
             dismissed=set(raw.get("dismissed", [])),
@@ -85,6 +88,7 @@ def load(path: Path) -> State:
             export_dir=raw.get("export_dir"),
             last_check=raw.get("last_check"),
             have_tickets=set(raw.get("have_tickets", [])),
+            venues=raw.get("venues", {}),
         )
     except (ValueError, TypeError, AttributeError) as exc:
         raise StateError(f"{path} is unreadable ({exc}); fix or move it aside — not resetting") from exc
@@ -126,6 +130,7 @@ def save(state: State, path: Path, today: date | None = None) -> None:
         "export_dir": state.export_dir,
         "last_check": state.last_check,
         "have_tickets": sorted(state.have_tickets),
+        "venues": state.venues,
     }
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, indent=1, sort_keys=True))

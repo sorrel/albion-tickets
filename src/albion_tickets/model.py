@@ -41,3 +41,4 @@ class Match:
     url: str
     unreadable: list[str] = field(default_factory=list)
     on_sale_now: bool = False  # a saved ticket page says so, with no dated stages
+    venue: str | None = None  # the ground a saved ticket page names

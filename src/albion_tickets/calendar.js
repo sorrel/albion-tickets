@@ -47,6 +47,7 @@ function run() {
     ev.endDate = new Date(req.end);
   }
   ev.description = req.notes;
+  ev.location = req.location || '';
   const old = ev.displayAlarms();
   for (let i = old.length - 1; i >= 0; i--) app.delete(old[i]);
   req.alarms.forEach(function (mins) {

@@ -26,7 +26,7 @@ def _row(rec) -> dict[str, str]:
         "brackets": " / ".join(f"{st['min_points']}+" for st in stages if st.get("min_points") is not None),
         "your_stage": s.get("your_stage") or "",
         "your_sale": yours["opens"] if yours else "",
-        "sold_out_at": s.get("sold_out_stage") or "",
+        "sold_out_at": rec.sold_out_at() or "",
         "sold_out_noticed": rec.first_sold_out_seen or "",
         "kickoff_changes": "; ".join(f"{old} → {new} (noticed {seen})"
                                     for (old, _), (new, seen) in zip(rec.kickoffs, rec.kickoffs[1:])),

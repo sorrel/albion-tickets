@@ -68,6 +68,29 @@ def _sold_out_stage(m: Match, seen: datetime) -> Stage | None:
     return opened[-1] if opened else None
 
 
+def sold_out_text(label: str | None) -> str:
+    """'STHs/1901 Club Members w/ 239+ Points' → 'sold out at 239+ points (STHs/1901)'.
+
+    The level is the last group the sale reached: the club lists everyone it
+    was offered to, so the widest group named is where it ran out.
+    """
+    if not label:
+        return "sold out"
+    low = label.lower()
+    pts = re.search(r"(\d+)\s*\+", label)
+    if pts:
+        return f"sold out at {pts.group(1)}+ points (STHs/1901)"
+    if "general sale" in low:
+        return "sold out at general sale"
+    if "purchase history" in low:
+        return "sold out to supporters with purchase history"
+    if "myalbion" in low:
+        return "sold out to all MyAlbion+ members"
+    if re.search(r"\bsths?\b|1901|season ticket", low):
+        return "sold out to all STHs/1901 members"
+    return f"sold out to {label}"
+
+
 _STH_LINE = re.compile(r"\bSTHs?\b|season ticket|1901", re.IGNORECASE)
 
 

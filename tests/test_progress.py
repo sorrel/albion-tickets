@@ -123,3 +123,20 @@ def test_check_summary_is_a_few_lines(tmp_path, monkeypatch):
 def test_check_verbose_lists_every_event_with_its_date(tmp_path, monkeypatch):
     r = _cli(tmp_path, monkeypatch, "--dry-run", "--verbose")
     assert re.search(r"^  \w{3} 26 Dec 15:00 · Fulham v Albion$", r.stdout, re.M)
+
+
+def test_cli_import_progress_flag_reviews_each_file(tmp_path, monkeypatch):
+    from pathlib import Path
+    monkeypatch.setenv("ALBION_DATA_DIR", str(tmp_path))
+    save(State(points=184), tmp_path / "state.json")
+    monkeypatch.setattr(cli_mod, "make_calendar", FakeCalendar)
+    away = (Path(__file__).parent / "fixtures" / "ticket-page-away.txt").read_text()
+    monkeypatch.setattr(cli_mod, "pdf_text", lambda path: away)
+    pdfs = [tmp_path / "Away.pdf", tmp_path / "Home.pdf"]
+    for p in pdfs:
+        p.write_bytes(b"%PDF")
+    r = CliRunner().invoke(cli_mod.cli, ["import", "--dry-run", "--progress", *map(str, pdfs)])
+    assert r.exit_code == 0, r.output
+    assert "Reviewing Away.pdf (1/2)…" in r.stderr
+    assert "Reviewing Home.pdf (2/2)…" in r.stderr
+    assert "Reviewing" not in r.stdout

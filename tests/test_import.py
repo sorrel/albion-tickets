@@ -122,8 +122,32 @@ def test_import_never_overrides_the_clubs_news(state_path):
     run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
     before = load(state_path).matches["2026-27-tottenham-hotspur-a-premier-league"].summary
     report = run_import(cal, [away()], state_path, NOW, dry_run=False)
-    assert "Tottenham Hotspur (A): already tracked from the club's news" in report.skipped
-    assert load(state_path).matches["2026-27-tottenham-hotspur-a-premier-league"].summary == before
+    assert ("Tottenham Hotspur (A): already tracked from the club's news; "
+            "the page says sold out at 239+ points (STHs/1901)") in report.skipped
+    spurs = load(state_path).matches["2026-27-tottenham-hotspur-a-premier-league"]
+    assert spurs.summary == before
+    assert spurs.page_sold_out["label"] == "STHs/1901 Club Members w/ 239+ Points"
+
+
+def test_page_sell_out_survives_the_next_check_and_reaches_history(state_path, monkeypatch):
+    cal = FakeCalendar()
+    run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
+    run_import(cal, [away()], state_path, NOW, dry_run=False)
+    run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
+    spurs = load(state_path).matches["2026-27-tottenham-hotspur-a-premier-league"]
+    assert spurs.sold_out_at() == "STHs/1901 Club Members w/ 239+ Points"
+    monkeypatch.setattr(cli_mod, "_today", lambda: date(2026, 11, 13))
+    out = CliRunner().invoke(cli_mod.cli, ["history"]).output
+    assert next(l for l in out.splitlines() if "Tottenham" in l).rstrip().endswith("239+")
+
+
+def test_sold_out_text_names_level_and_points():
+    from albion_tickets.rules import sold_out_text
+    assert sold_out_text("STHs/1901 Club Members w/ 225+ Points:") == "sold out at 225+ points (STHs/1901)"
+    assert sold_out_text("All MyAlbion+ Members") == "sold out to all MyAlbion+ members"
+    assert sold_out_text("all STHs/1901 Club Members") == "sold out to all STHs/1901 members"
+    assert sold_out_text("STHs/1901 Members, MyAlbion+ Members, and supporters with previous purchase history") \
+        == "sold out to supporters with purchase history"
 
 
 def test_article_takes_over_an_import_under_another_name(state_path, monkeypatch):

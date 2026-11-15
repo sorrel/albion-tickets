@@ -31,6 +31,13 @@ class MatchRecord:
     first_problem: str | None = None
     last_seen: str = ""
     summary: dict = field(default_factory=dict)  # opponent, home, competition, url, outcome …
+    # The sell-out level a saved ticket page gave ({"label", "seen"}). Kept apart
+    # from summary, which every check rebuilds, because it is the record that
+    # matters year on year and the club's news often never states it.
+    page_sold_out: dict[str, str] = field(default_factory=dict)
+
+    def sold_out_at(self) -> str | None:
+        return self.summary.get("sold_out_stage") or self.page_sold_out.get("label")
 
 
 @dataclass
@@ -69,6 +76,7 @@ def load(path: Path) -> State:
                 first_problem=v.get("first_problem"),
                 last_seen=v.get("last_seen", ""),
                 summary=v.get("summary", {}),
+                page_sold_out=v.get("page_sold_out", {}),
             ) for k, v in raw.get("matches", {}).items()},
             events=raw.get("events", {}),
             dismissed=set(raw.get("dismissed", [])),

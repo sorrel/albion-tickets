@@ -4,6 +4,7 @@ from click.testing import CliRunner
 from albion_tickets import cli as cli_mod
 from albion_tickets.calendar_app import FakeCalendar
 from albion_tickets.fetch import FetchResult
+from albion_tickets.rules import sold_out_tier
 from albion_tickets.store import load, save
 
 
@@ -136,7 +137,7 @@ def test_check_records_last_check(env, monkeypatch):
 
 
 def test_sold_out_tier_names_the_widest_group():
-    assert cli_mod._tier("STHs/1901 Members, MyAlbion+ Members, and supporters with previous purchase history") \
+    assert sold_out_tier("STHs/1901 Members, MyAlbion+ Members, and supporters with previous purchase history") \
         == "Purchase history"
-    assert cli_mod._tier("All MyAlbion+ Members") == "MyAlbion+"
-    assert cli_mod._tier("STHs/1901 Club Members w/ 239+ Points") == "239+"
+    assert sold_out_tier("All MyAlbion+ Members") == "MyAlbion+"
+    assert sold_out_tier("STHs/1901 Club Members w/ 239+ Points") == "239+"

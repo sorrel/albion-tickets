@@ -2,7 +2,6 @@ import gzip
 from datetime import date, datetime
 from pathlib import Path
 
-import pytest
 
 from albion_tickets.config import TZ
 from albion_tickets.parse_article import article_text, is_tracked, parse_article

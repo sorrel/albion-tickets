@@ -108,6 +108,7 @@ def render(state: State, now: datetime) -> str:
         blocks.append("\n".join(filter(None, [heading, body, note and dim(note)])))
     checks = sorted(k for k in state.events if k.startswith("check:"))
     if checks:
-        blocks.append("\n".join([title("Check this reminders"), *(f"{k}  {dim(f'albion dismiss {k}')}" for k in checks)]))
+        lines = [f"{k}  {dim(f'albion dismiss {k}')}" for k in checks]
+        blocks.append("\n".join([title("Check this reminders"), *lines]))
     last = f"Last checked {when(state.last_check)}." if state.last_check else "Not checked yet: run albion check."
     return "\n\n".join([*blocks, dim(last)])

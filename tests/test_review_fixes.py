@@ -17,7 +17,7 @@ from albion_tickets.parse_article import parse_text
 from albion_tickets.parse_stages import parse_status
 from albion_tickets.rules import decide
 from albion_tickets.run import run_check
-from albion_tickets.store import State, load, observe, save
+from albion_tickets.store import State, observe, save
 
 FIX = Path(__file__).parent / "fixtures"
 ART = BASE_URL + "/media-article/"

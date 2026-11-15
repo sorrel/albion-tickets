@@ -13,17 +13,14 @@ _DAY_WORD = re.compile(r"\b(mon|tue|wed|thu|fri|sat|sun)[a-z]*\b", re.IGNORECASE
 _POINTS = re.compile(r"(\d+)\s*\+\s*(?:pts|points)?", re.IGNORECASE)
 
 
+# Stage label wording → who the stage is for, first match wins ("STHs' guests" are guests).
+_AUDIENCES: list[tuple[re.Pattern, Audience]] = [
+    (re.compile(r"guest", re.I), "guests"), (re.compile(r"\bsths?\b|season ticket|1901", re.I), "sth"),
+    (re.compile(r"myalbion", re.I), "myalbion"), (re.compile(r"general sale", re.I), "general")]
+
+
 def _audience(label: str) -> Audience:
-    low = label.lower()
-    if "guest" in low:
-        return "guests"
-    if re.search(r"\bsths?\b|season ticket|1901", low):
-        return "sth"
-    if "myalbion" in low:
-        return "myalbion"
-    if "general sale" in low:
-        return "general"
-    return "other"
+    return next((who for words, who in _AUDIENCES if words.search(label)), "other")
 
 
 def _split(line: str) -> tuple[str, str] | None:

@@ -49,7 +49,8 @@ def table(rows: list[list[str]], header: list[str], styles: list[dict] | None = 
     """Rows under a bold header and a dim rule; each row's style (if any) applied last."""
     widths = [max(len(r[i]) for r in [header, *rows]) for i in range(len(header))]
     line = lambda r: "  ".join(c.ljust(w) for c, w in zip(r, widths, strict=True)).rstrip()
-    styled = (click.style(line(r), **st) if st else line(r) for r, st in zip(rows, styles or [{}] * len(rows), strict=True))
+    styles = styles or [{}] * len(rows)
+    styled = (click.style(line(r), **st) if st else line(r) for r, st in zip(rows, styles, strict=True))
     rule = "─" * len(line(["x" * w for w in widths]))
     return "\n".join([click.style(line(header), bold=True), click.style(rule, dim=True), *styled])
 

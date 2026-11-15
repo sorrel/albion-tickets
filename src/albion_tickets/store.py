@@ -58,6 +58,22 @@ class MatchRecord:
     def home(self) -> bool:
         return self.summary.get("home", False)
 
+    @property
+    def stages(self) -> list[dict]:
+        """The sale stages last read, in the order they open."""
+        return sorted(self.summary.get("stages", []), key=lambda st: st["opens"])
+
+    @property
+    def brackets(self) -> list[str]:
+        """The points brackets, in sale order: ['247+', '239+', '225+']."""
+        return [f"{st['min_points']}+" for st in self.stages if st.get("min_points") is not None]
+
+    @property
+    def your_sale(self) -> str | None:
+        """When the stage the user qualifies for opens."""
+        return next((st["opens"] for st in self.stages if st["label"] == self.summary.get("your_stage")), None)
+
+
 
 @dataclass
 class State:
@@ -71,6 +87,13 @@ class State:
     last_check: str | None = None  # when a (non-dry) check last read the club's news
     have_tickets: set[str] = field(default_factory=set)  # match keys: no sale reminders for these
     venues: dict[str, str] = field(default_factory=dict)  # opponent → ground, learnt from saved pages
+
+def by_season(state: State) -> dict[str, list[MatchRecord]]:
+    """Each season's records ('2026-27': […]), in kick-off order."""
+    seasons: dict[str, list[MatchRecord]] = {}
+    for key, rec in state.matches.items():
+        seasons.setdefault(key[:7], []).append(rec)  # keys start with the season
+    return {s: sorted(recs, key=lambda r: r.kickoff_iso) for s, recs in sorted(seasons.items())}
 
 
 @dataclass(frozen=True)

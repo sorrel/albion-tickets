@@ -67,27 +67,33 @@ def _sold_out_stage(m: Match, seen: datetime) -> Stage | None:
     return opened[-1] if opened else None
 
 
-def sold_out_text(label: str | None) -> str:
-    """'STHs/1901 Club Members w/ 239+ Points' → 'sold out at 239+ points (STHs/1901)'.
+# The groups a sale reaches, widest first: (wording, short name, sentence).
+# The club's sell-out label lists everyone the sale was offered to, so the
+# widest group it names is where the tickets ran out.
+_LEVELS = [
+    (re.compile(r"general sale", re.I), "General sale", "at general sale"),
+    (re.compile(r"purchase history", re.I), "Purchase history", "to supporters with purchase history"),
+    (re.compile(r"myalbion", re.I), "MyAlbion+", "to all MyAlbion+ members"),
+    (re.compile(r"\bsths?\b|1901|season ticket", re.I), "All STHs", "to all STHs/1901 members"),
+]
+_POINTS_LEVEL = re.compile(r"(\d+)\s*\+")
 
-    The level is the last group the sale reached: the club lists everyone it
-    was offered to, so the widest group named is where it ran out.
-    """
-    if not label:
-        return "sold out"
-    low = label.lower()
-    pts = re.search(r"(\d+)\s*\+", label)
-    if pts:
-        return f"sold out at {pts.group(1)}+ points (STHs/1901)"
-    if "general sale" in low:
-        return "sold out at general sale"
-    if "purchase history" in low:
-        return "sold out to supporters with purchase history"
-    if "myalbion" in low:
-        return "sold out to all MyAlbion+ members"
-    if re.search(r"\bsths?\b|1901|season ticket", low):
-        return "sold out to all STHs/1901 members"
-    return f"sold out to {label}"
+
+def _level(label: str) -> tuple[str, str]:
+    """A sell-out label → (short name, sentence): ('239+', 'at 239+ points (STHs/1901)')."""
+    if pts := _POINTS_LEVEL.search(label):
+        return f"{pts.group(1)}+", f"at {pts.group(1)}+ points (STHs/1901)"
+    return next(((short, said) for words, short, said in _LEVELS if words.search(label)), (label, f"to {label}"))
+
+
+def sold_out_text(label: str | None) -> str:
+    """'STHs/1901 Club Members w/ 239+ Points' → 'sold out at 239+ points (STHs/1901)'."""
+    return f"sold out {_level(label)[1]}" if label else "sold out"
+
+
+def sold_out_tier(label: str | None) -> str:
+    """The same level, short, for a table column: '239+', 'MyAlbion+', 'All STHs'."""
+    return _level(label)[0] if label else "—"
 
 
 _STH_LINE = re.compile(r"\bSTHs?\b|season ticket|1901", re.IGNORECASE)

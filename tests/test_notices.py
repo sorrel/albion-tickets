@@ -117,7 +117,7 @@ def test_points_too_old_are_skipped():
 def test_change_notice_is_one_shot_with_unique_key():
     m = brentford()
     c = Change("kickoff_moved", m.key, at(1, 16, 15, y=2027).isoformat(), at(1, 17, 14, y=2027).isoformat())
-    (n,) = change_notices([c], {m.key: m}, at(11, 20))
+    (n,) = change_notices([c], m, at(11, 20))
     assert n.one_shot and n.key == f"kickoff_moved:{m.key}:{c.new}"
     assert n.title == "⚠️ Brentford: kick-off moved Sat 16 Jan 3pm → Sun 17 Jan 2pm"
     assert n.start == at(11, 20, 9, 5) and n.alarms == [n.start]

@@ -9,7 +9,7 @@ from albion_tickets.calendar_app import FakeCalendar
 from albion_tickets.config import BASE_URL, TZ
 from albion_tickets.fetch import FetchResult
 from albion_tickets.run import run_check
-from albion_tickets.store import State, load, save
+from albion_tickets.store import MatchRecord, State, load, save
 
 FIX = Path(__file__).parent / "fixtures"
 NOW = datetime(2026, 11, 13, 20, 0, tzinfo=TZ)
@@ -275,3 +275,16 @@ def test_check_writes_a_saved_page_match_whose_event_never_landed(state_path):
     run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
     hull = next(n for n in cal.events.values() if n.key == "fixture:2026-27-hull-city-a-premier-league")
     assert hull.title == "⚽ Hull City v Albion" and hull.location.startswith("MKM Stadium")
+
+
+def test_next_sale_counts_matches_not_read_this_run(state_path):
+    """An imported match's sale is the next one even though no article was read for it."""
+    s = load(state_path)
+    s.matches["2026-27-brentford-a-premier-league"] = MatchRecord(
+        kickoffs=[("2027-01-16T15:00:00+00:00", "x")],
+        summary={"opponent": "Brentford", "home": False, "kind": "predicted_sale", "opens": "2026-12-04T09:00:00+00:00"})
+    s.events["sale:2026-27-brentford-a-premier-league"] = {"uid": "u", "title": "🎟️ Brentford away: your sale",
+                                                           "start": "2026-12-04T09:00:00+00:00", "fp": "x"}
+    save(s, state_path)
+    report = run_check(FakeCalendar(), Fetcher({}), state_path, datetime(2026, 11, 15, 9, tzinfo=TZ), dry_run=True)
+    assert report.next_sale == "🎟️ Brentford away: your sale"

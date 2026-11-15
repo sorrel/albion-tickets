@@ -8,7 +8,9 @@ import pytest
 from albion_tickets.calendar_app import FakeCalendar
 from albion_tickets.config import TZ
 from albion_tickets.notices import Notice
-from albion_tickets.run import _fingerprint, run_check, run_import
+from albion_tickets.importing import run_import
+from albion_tickets.run import run_check
+from albion_tickets.sync import fingerprint as _fingerprint
 from albion_tickets.store import State, load, save
 from albion_tickets.ticket_page import parse_ticket_page
 from albion_tickets.venues import GROUNDS, HOME, Ground, from_page, location

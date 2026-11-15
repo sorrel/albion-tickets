@@ -60,7 +60,7 @@ def _when(start: datetime | str | None) -> str:
     if start is None:
         return "?"
     start = start.astimezone(config.TZ)
-    return f"{start:%a} {start.day} {start:%b %H:%M}"
+    return f"{start:%a} {start:%d %b %H:%M}"
 
 
 def _slug(url: str) -> str:

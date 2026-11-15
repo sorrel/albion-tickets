@@ -93,7 +93,7 @@ def test_upcoming_separates_opened_sales_and_shows_last_check(env):
     assert "Still To Come" in coming and "Already Open" not in coming
     assert "Already Open" in opened
     assert "Long Gone" not in out
-    assert "Last checked Thu 1 Jan 12:00" in out
+    assert "Last checked Thu 01 Jan 12:00" in out
 
 
 def test_check_records_last_check(env, monkeypatch):
@@ -102,3 +102,10 @@ def test_check_records_last_check(env, monkeypatch):
     run("check")
     assert load(env / "state.json").last_check is not None
     assert "Not checked yet" not in run("upcoming").output
+
+
+def test_sold_out_tier_names_the_widest_group():
+    assert cli_mod._tier("STHs/1901 Members, MyAlbion+ Members, and supporters with previous purchase history") \
+        == "Purchase history"
+    assert cli_mod._tier("All MyAlbion+ Members") == "MyAlbion+"
+    assert cli_mod._tier("STHs/1901 Club Members w/ 239+ Points") == "239+"

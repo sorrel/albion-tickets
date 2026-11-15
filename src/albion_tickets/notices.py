@@ -109,7 +109,7 @@ def notices_for(m: Match, o: Outcome, points: int, now: datetime,
 
     if m.kickoff is not None:
         suffix = "" if m.kickoff_confirmed else " (time not confirmed)"
-        out.append(Notice(f"fixture:{m.key}", f"{_fixture_name(m)}{suffix}",
+        out.append(Notice(f"fixture:{m.key}", f"⚽ {_fixture_name(m)}{suffix}",
                           m.kickoff, m.kickoff + timedelta(hours=2), [], m.url))
     return out
 

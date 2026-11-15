@@ -83,7 +83,7 @@ def test_fixture_unconfirmed_title():
     o = Outcome("sale", FRI, at(12, 4))
     ns = kinds(notices_for(brentford(confirmed=False), o, 184, at(11, 13), at(11, 13), None))
     fx = ns["fixture"]
-    assert fx.title == "Brentford v Albion (time not confirmed)"
+    assert fx.title == "⚽ Brentford v Albion (time not confirmed)"
     assert fx.start == at(1, 16, 15, y=2027) and fx.end == at(1, 16, 17, y=2027) and fx.alarms == []
 
 

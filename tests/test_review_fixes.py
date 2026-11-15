@@ -129,7 +129,7 @@ def test_match_dropped_from_article_retires_events_and_asks(setup):
     renamed = spurs_table(("Tottenham Hotspur v Albion", "Spurs v Albion"))
     run_check(cal, Fetcher(renamed), setup, at(11, 9, 11), dry_run=False)
     fixtures = [n for n in cal.events.values() if n.key.startswith("fixture:")]
-    assert [n.title for n in fixtures] == ["Spurs v Albion"]
+    assert [n.title for n in fixtures] == ["⚽ Spurs v Albion"]
     assert any(n.key.startswith("check:") for n in cal.events.values())
 
 

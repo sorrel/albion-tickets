@@ -80,20 +80,51 @@ def _match(opponent, opens, kickoff):
                        summary={"opponent": opponent, "home": False, "kind": "sale", "opens": opens})
 
 
-def test_upcoming_separates_opened_sales_and_shows_last_check(env):
+def _sections(out: str) -> dict[str, str]:
+    """`albion upcoming` output → {section title: its text}."""
+    import re
+    parts = re.split(r"^(You have tickets|Sales to come[^\n]*|On sale now|Sold out|No sale dates yet|Needs a look)$",
+                     out, flags=re.M)
+    return {t.split(" ·")[0]: body for t, body in zip(parts[1::2], parts[2::2])}
+
+
+def test_upcoming_groups_by_what_each_match_means(env):
     run("points", "184")
     st = load(env / "state.json")
     st.matches["a"] = _match("Already Open", "2000-01-07T09:00:00+00:00", "2099-01-01T15:00:00+00:00")
     st.matches["b"] = _match("Still To Come", "2099-01-01T09:00:00+00:00", "2099-02-01T15:00:00+00:00")
     st.matches["c"] = _match("Long Gone", "2000-01-01T09:00:00+00:00", "2000-01-08T15:00:00+00:00")
+    st.matches["d"] = _match("Sold Before You", "2000-01-07T09:00:00+00:00", "2099-01-02T15:00:00+00:00")
+    st.matches["d"].page_sold_out = {"label": "STHs/1901 Club Members w/ 239+ Points", "seen": "x"}
+    st.matches["e"] = _match("Got Mine", "2000-01-07T09:00:00+00:00", "2099-01-03T15:00:00+00:00")
+    st.have_tickets.add("e")
     st.last_check = "2099-01-01T12:00:00+00:00"
     save(st, env / "state.json")
     out = run("upcoming").output
-    coming, _, opened = out.partition("Sale already opened")
-    assert "Still To Come" in coming and "Already Open" not in coming
-    assert "Already Open" in opened
+    sec = _sections(out)
+    assert "Got Mine" in sec["You have tickets"]
+    assert "Still To Come" in sec["Sales to come"] and "Already Open" not in sec["Sales to come"]
+    assert "Already Open" in sec["On sale now"]
+    assert "Sold Before You" in sec["Sold out"] and "at 239+ points (STHs/1901)" in sec["Sold out"]
     assert "Long Gone" not in out
     assert "Last checked Thu 01 Jan 12:00" in out
+
+
+def test_upcoming_colours_tickets_and_dims_sold_out(env):
+    import click
+    run("points", "184")
+    st = load(env / "state.json")
+    st.matches["d"] = _match("Sold Before You", "2000-01-07T09:00:00+00:00", "2099-01-02T15:00:00+00:00")
+    st.matches["d"].page_sold_out = {"label": "All MyAlbion+ Members", "seen": "x"}
+    st.matches["e"] = _match("Got Mine", "2000-01-07T09:00:00+00:00", "2099-01-03T15:00:00+00:00")
+    st.have_tickets.add("e")
+    save(st, env / "state.json")
+    out = CliRunner().invoke(cli_mod.cli, ["upcoming"], color=True).output
+    line = next(l for l in out.splitlines() if "Got Mine" in l)
+    assert line.startswith(click.style("", fg="green", bold=True)[:-4])  # bold green, opened before the text
+    assert click.unstyle(line).startswith("Got Mine (A)")
+    sold = next(l for l in out.splitlines() if "Sold Before You" in l)
+    assert sold.startswith("\x1b[2m")  # dim
 
 
 def test_check_records_last_check(env, monkeypatch):

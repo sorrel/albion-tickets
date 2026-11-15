@@ -1,0 +1,60 @@
+"""Shared pieces of terminal output: dates, competition names, match cells, tables.
+
+Widths are always measured on plain text and styling applied afterwards,
+since an ANSI escape takes no columns.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+
+import click
+
+from . import config
+from .store import MatchRecord
+
+_COMP = {"Premier League": "PL", "UEFA Europa League": "Europa", "UEFA Conference League": "Conference",
+         "UEFA Champions League": "Champions"}
+
+
+def when(iso: str | None) -> str:
+    """'2026-12-02T20:15…' → 'Wed 02 Dec 20:15' (two-digit days, so columns line up)."""
+    if not iso:
+        return "—"
+    return f"{datetime.fromisoformat(iso).astimezone(config.TZ):%a %d %b %H:%M}"
+
+
+def day(iso: str | None) -> str:
+    """As `when`, without the time."""
+    return when(iso)[:10] if iso else "—"
+
+
+def comp(name: str) -> str:
+    """A competition's short name for tables: 'UEFA Conference League' → 'Conference'."""
+    return _COMP.get(name, name)
+
+
+def match_cells(key: str, rec: MatchRecord) -> list[str]:
+    """The Match, Comp and Kick-off cells every match table shares."""
+    s = rec.summary
+    kickoff = rec.kickoffs[-1][0] if rec.kickoffs else None
+    unconfirmed = "" if s.get("kickoff_confirmed", True) else "?"
+    return [f"{s.get('opponent', key)} ({'H' if s.get('home') else 'A'})",
+            comp(s.get("competition", "")),
+            when(kickoff) + unconfirmed]
+
+
+def table(rows: list[list[str]], header: list[str], styles: list[dict] | None = None) -> str:
+    """Rows under a bold header and a dim rule; each row's style (if any) applied last."""
+    widths = [max(len(r[i]) for r in [header, *rows]) for i in range(len(header))]
+    line = lambda r: "  ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip()
+    styled = (click.style(line(r), **st) if st else line(r) for r, st in zip(rows, styles or [{}] * len(rows)))
+    rule = "─" * len(line(["x" * w for w in widths]))
+    return "\n".join([click.style(line(header), bold=True), click.style(rule, dim=True), *styled])
+
+
+def title(text: str) -> str:
+    return click.style(text, fg="yellow", bold=True)
+
+
+def dim(text: str) -> str:
+    return click.style(text, dim=True)

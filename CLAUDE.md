@@ -32,7 +32,7 @@ English, feature branches only.
 
 ## Layout
 
-`fetch` → `discover` (Ticket News in the all-news listing) →
+`fetch` → `discover` (Ticket and Fixture News in the all-news listing) →
 `parse_article`/`parse_stages`/`dates` (article → `Match`) → `rules`
 (`Outcome`) → `store` → `notices` → `calendar_app` — wired in `run.py`,
 exposed by `cli.py`.
@@ -52,5 +52,10 @@ exposed by `cli.py`.
 - **Grounds:** `venues.GROUNDS` holds each Premier League ground's postal
   address and map pin; other grounds come from saved pages (`state.venues`)
   and are pinned by Maps when written. Update `GROUNDS` each summer.
+- **Fixture News:** `fixture_news` reads moves, postponements and cup draws
+  from an article's sentences; `news_updates` matches each to a tracked match
+  (same club and end; nearest date when unsure, else "check this") and records
+  it in `MatchRecord.news`, which beats any older source (`with_news`). Read
+  about daily for a week; draws create matches with `source: draw`.
 - Each check also rebuilds the fixture event of every tracked match it didn't
   read (`run._refresh_fixtures`), so a change in how events look reaches all.

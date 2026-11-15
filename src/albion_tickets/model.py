@@ -42,3 +42,5 @@ class Match:
     unreadable: list[str] = field(default_factory=list)
     on_sale_now: bool = False  # a saved ticket page says so, with no dated stages
     venue: str | None = None  # the ground a saved ticket page names
+    postponed: bool = False  # Fixture News said so, with no new date yet
+    date_confirmed: bool = True  # False for a cup draw's provisional weekend

@@ -39,8 +39,12 @@ def _when(dt: datetime) -> str:
     return f"{dt:%a} {dt.day} {dt:%b} {hour}{mins}{'am' if dt.hour < 12 else 'pm'}"
 
 
-def _fixture_name(m: Match) -> str:
-    return f"Albion v {m.opponent}" if m.home else f"{m.opponent} v Albion"
+def match_name(opponent: str, home: bool) -> str:
+    return f"Albion v {opponent}" if home else f"{opponent} v Albion"
+
+
+def fixture_name(m: Match) -> str:
+    return match_name(m.opponent, m.home)
 
 
 def _where(m: Match) -> str:
@@ -106,12 +110,11 @@ def notices_for(m: Match, o: Outcome, points: int, now: datetime,
     elif o.kind == "unreadable":
         first = problem_seen or now
         reason = f"couldn't read a sale line: “{m.unreadable[0]}”" if m.unreadable else "found no sale dates in it"
-        out.append(check_this(f"check:{m.key}", m.url, f"{_fixture_name(m)} tickets", first,
+        out.append(check_this(f"check:{m.key}", m.url, f"{fixture_name(m)} tickets", first,
                               first if o.urgent else None, reason))
 
     if m.kickoff is not None:
-        suffix = "" if m.kickoff_confirmed else " (time not confirmed)"
-        out.append(Notice(f"fixture:{m.key}", f"⚽ {_fixture_name(m)}{suffix}",
+        out.append(Notice(f"fixture:{m.key}", f"⚽ {fixture_name(m)}{fixture_suffix(m)}",
                           m.kickoff, m.kickoff + timedelta(hours=2), [], m.url))
     return out
 
@@ -131,16 +134,31 @@ def points_due(key: str, opponent: str, kickoff: datetime, worth: int | None,
     return Notice(f"points:{key}", title, start, start + timedelta(minutes=15), [start], "", one_shot=True)
 
 
+def alert(key: str, title: str, notes: str, now: datetime) -> Notice:
+    """A one-off "this changed" alert, five minutes from now."""
+    start = now + SOON
+    return Notice(key, f"⚠️ {title}", start, start + timedelta(minutes=15), [start], notes, one_shot=True)
+
+
+def moved(kind: str, key: str, opponent: str, old: str, new: str, url: str, now: datetime) -> Notice:
+    """'⚠️ Fulham: kick-off moved Sat 26 Dec 3pm → Sun 27 Dec 2pm' (kind: kickoff_moved or sale_moved)."""
+    what = "kick-off moved" if kind == "kickoff_moved" else "sale moved"
+    old_s, new_s = _when(datetime.fromisoformat(old)), _when(datetime.fromisoformat(new))
+    return alert(f"{kind}:{key}:{new}", f"{opponent}: {what} {old_s} → {new_s}", url, now)
+
+
 def change_notices(changes: list[Change], matches: dict[str, Match], now: datetime) -> list[Notice]:
-    out = []
-    for c in changes:
-        m = matches[c.match_key]
-        what = "kick-off moved" if c.kind == "kickoff_moved" else "sale moved"
-        old, new = _when(datetime.fromisoformat(c.old)), _when(datetime.fromisoformat(c.new))
-        start = now + SOON
-        out.append(Notice(f"{c.kind}:{c.match_key}:{c.new}", f"⚠️ {m.opponent}: {what} {old} → {new}",
-                          start, start + timedelta(minutes=15), [start], m.url, one_shot=True))
-    return out
+    return [moved(c.kind, c.match_key, matches[c.match_key].opponent, c.old, c.new, matches[c.match_key].url, now)
+            for c in changes]
+
+
+def fixture_suffix(m: Match) -> str:
+    """What a fixture's title says about its date: postponed, or not yet fixed."""
+    if m.postponed:
+        return " (postponed)"
+    if not m.date_confirmed:
+        return " (date not confirmed)"
+    return "" if m.kickoff_confirmed else " (time not confirmed)"
 
 
 def check_this(key: str, url: str, title: str, first_seen: datetime, soonest: datetime | None,

@@ -86,7 +86,8 @@ def section_of(key: str, rec: MatchRecord, state: State, now: datetime) -> str:
 
 
 def _to_come(rec: MatchRecord, now: datetime) -> bool:
-    return not rec.kickoffs or datetime.fromisoformat(rec.kickoffs[-1][0]) >= now
+    """Not yet played: no date, a date ahead, or postponed (its old date may have passed)."""
+    return not rec.kickoffs or rec.news.get("postponed") or datetime.fromisoformat(rec.kickoffs[-1][0]) >= now
 
 
 def render(state: State, now: datetime) -> str:

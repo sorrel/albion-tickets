@@ -1,14 +1,14 @@
 """albion — reminders for Albion away and cup ticket sales."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import sys
 from pathlib import Path
 
 import click
 
-from . import config
+from . import config, venues
 from .calendar_app import MacCalendar
 from .calendar_app import remove as remove_event
 from .export import export as export_history
@@ -128,53 +128,126 @@ _KIND = {"sale": "", "predicted_sale": "expected", "sold_out_before_you": "sold 
          "no_dates": "no sale dates yet", "on_sale": "on sale now"}
 
 
+SOON = timedelta(days=7)  # a sale this close is highlighted
+
+
+def _section(state, key: str, rec, now: datetime) -> str:
+    """Which part of `albion upcoming` a match belongs in."""
+    s = rec.summary
+    kind = s.get("kind", "")
+    opens = datetime.fromisoformat(s["opens"]) if s.get("opens") else None
+    if key in state.have_tickets:
+        return "tickets"
+    if kind == "unreadable":
+        return "look"
+    if kind in ("sale", "predicted_sale") and opens and opens > now:
+        return "to_come"
+    if kind in ("sold_out", "sold_out_before_you", "exchange_open") or rec.sold_out_at():
+        return "sold_out"
+    if kind in ("sale", "predicted_sale", "on_sale"):
+        return "on_sale"
+    return "no_dates"
+
+
+def _match_cells(key: str, rec) -> list[str]:
+    s = rec.summary
+    ko = rec.kickoffs[-1][0] if rec.kickoffs else None
+    return [f"{s.get('opponent', key)} ({'H' if s.get('home') else 'A'})",
+            _COMP.get(s.get("competition", ""), s.get("competition", "")),
+            _fmt(ko) + ("" if s.get("kickoff_confirmed", True) else "?")]
+
+
+def _ground(rec) -> str:
+    s = rec.summary
+    where = venues.location(s.get("opponent", ""), s.get("home", False), rec.venue, {})
+    return where.address.split(",")[0] if where else "—"
+
+
 @cli.command()
 def upcoming():
-    """Tracked matches and your sale day for each."""
+    """Matches to come: tickets you have, sales to come, and what has sold out."""
     state = _load()
     now = datetime.now(config.TZ)
-    pts = state.points if state.points is not None else "?"
-    ahead, opened = [], []
+    groups: dict[str, list] = {}
     for key, rec in state.matches.items():
         ko = rec.kickoffs[-1][0] if rec.kickoffs else None
         if ko and datetime.fromisoformat(ko) < now:
             continue
-        s = rec.summary
-        opens = s.get("opens")
-        notes = [_KIND.get(s.get("kind", ""), s.get("kind", "").replace("_", " "))]
-        if key in state.have_tickets:
-            notes = ["you have tickets"]
-        elif rec.sold_out_at():
-            notes = [sold_out_text(rec.sold_out_at())]
-        if not s.get("kickoff_confirmed", True):
-            notes.append("kick-off not confirmed")
-        comp = "" if not s.get("home") else _COMP.get(s.get("competition", ""), s.get("competition", ""))
-        row = (opens or ko or "", [
-            _fmt(opens),
-            f"{s.get('opponent', key)} ({'H' if s.get('home') else 'A'})" + (f" {comp}" if comp else ""),
-            _fmt(ko) + ("" if s.get("kickoff_confirmed", True) else "?"),
-            ", ".join(n for n in notes if n),
-        ])
-        (opened if opens and datetime.fromisoformat(opens) <= now else ahead).append(row)
-    title = lambda text: click.echo(click.style(text, fg="yellow", bold=True))
-    title(f"Sales coming up · you have {pts} points")
-    if ahead:
-        click.echo("\n".join(_table([r for _, r in sorted(ahead, key=lambda r: r[0])], _UPCOMING_HEADER)))
+        groups.setdefault(_section(state, key, rec, now), []).append((ko or "", key, rec))
+
+    def title(text: str) -> None:
+        click.echo(click.style(text, fg="yellow", bold=True))
+
+    def by(name: str, sort=lambda item: item[0]):
+        return sorted(groups.get(name, []), key=sort)
+
+    out_first = True
+
+    def gap() -> None:
+        nonlocal out_first
+        if not out_first:
+            click.echo()
+        out_first = False
+
+    if groups.get("tickets"):
+        gap()
+        title("You have tickets")
+        rows = [[*_match_cells(k, r), _ground(r)] for _, k, r in by("tickets")]
+        click.echo("\n".join(_table(rows, ["Match", "Comp", "Kick-off", "Ground"],
+                                     [{"fg": "green", "bold": True}] * len(rows))))
+
+    gap()
+    pts = state.points if state.points is not None else "?"
+    title(f"Sales to come · you have {pts} points")
+    items = by("to_come", sort=lambda item: item[2].summary["opens"])
+    if items:
+        rows, styles = [], []
+        for _, k, r in items:
+            s = r.summary
+            opens = datetime.fromisoformat(s["opens"])
+            note = "predicted" if s.get("kind") == "predicted_sale" else ""
+            rows.append([_fmt(s["opens"]), *_match_cells(k, r), note])
+            styles.append({"fg": "yellow", "bold": True} if opens - now <= SOON else {})
+        click.echo("\n".join(_table(rows, ["Your sale", "Match", "Comp", "Kick-off", "Note"], styles)))
+        if any(row[-1] == "predicted" for row in rows):
+            click.echo(click.style("Predicted: your usual day, until the club announces the points brackets.",
+                                   dim=True))
     else:
         click.echo("None yet: the next check will pick them up when the club announces them.")
-    if opened:
-        click.echo()
-        title("Sale already opened · match still to come")
-        click.echo("\n".join(_table([r for _, r in sorted(opened, key=lambda r: r[0])], _UPCOMING_HEADER)))
-    checks = [k for k in state.events if k.startswith("check:")]
+
+    if groups.get("on_sale"):
+        gap()
+        title("On sale now")
+        rows = [[_fmt(r.summary.get("opens")), *_match_cells(k, r)] for _, k, r in by("on_sale")]
+        click.echo("\n".join(_table(rows, ["Opened", "Match", "Comp", "Kick-off"])))
+
+    if groups.get("sold_out"):
+        gap()
+        title("Sold out")
+        rows = []
+        for _, k, r in by("sold_out"):
+            level = sold_out_text(r.sold_out_at()).removeprefix("sold out ")
+            if r.summary.get("kind") == "exchange_open":
+                level += " · exchange open to you"
+            rows.append([*_match_cells(k, r), level])
+        click.echo("\n".join(_table(rows, ["Match", "Comp", "Kick-off", "Sold out"],
+                                     [{"dim": True}] * len(rows))))
+
+    if groups.get("no_dates"):
+        gap()
+        title("No sale dates yet")
+        rows = [_match_cells(k, r) for _, k, r in by("no_dates")]
+        click.echo("\n".join(_table(rows, ["Match", "Comp", "Kick-off"])))
+
+    checks = [k for k in state.events if k.startswith("check:")] + [k for _, k, _ in by("look")]
     if checks:
-        click.echo()
+        gap()
         title("Needs a look")
         for k in checks:
-            click.echo(f"{k}  (albion dismiss {k})")
+            click.echo(f"{k}  (albion dismiss {k})" if k.startswith("check:") else k)
     click.echo()
-    click.echo(f"Last checked {_fmt(state.last_check)}." if state.last_check
-               else "Not checked yet: run albion check.")
+    click.echo(click.style(f"Last checked {_fmt(state.last_check)}." if state.last_check
+                           else "Not checked yet: run albion check.", dim=True))
 
 
 _UPCOMING_HEADER = ["Your sale", "Match", "Kick-off", "Note"]
@@ -256,11 +329,14 @@ def _row(rec) -> list[str]:
 _HEADER = ["Kick-off", "Match", "Comp", "Worth", "Tue / Wed / Thu", "Your sale", "Sold out at"]
 
 
-def _table(rows: list[list[str]], header: list[str] = _HEADER) -> list[str]:
+def _table(rows: list[list[str]], header: list[str] = _HEADER, styles: list[dict] | None = None) -> list[str]:
+    """Columns measured on the plain text; each row's style (if any) applied after."""
     widths = [max(len(r[i]) for r in [header, *rows]) for i in range(len(header))]
     fmt = lambda r: "  ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip()
     rule = "─" * len(fmt(["x" * w for w in widths]))
-    return [click.style(fmt(header), bold=True), rule, *(fmt(r) for r in rows)]
+    styles = styles or [{}] * len(rows)
+    return [click.style(fmt(header), bold=True), click.style(rule, dim=True),
+            *(click.style(fmt(r), **st) if st else fmt(r) for r, st in zip(rows, styles))]
 
 
 def _detail(rec) -> list[str]:

@@ -242,7 +242,8 @@ def test_cli_got_removes_reminders_and_undo_restores_the_mark(env, tmp_path):
     assert res.exit_code == 0, res.output
     assert "Brentford: marked as having tickets. Removed 1 reminder." in res.output
     assert not any(n.key == "sale:2026-27-brentford-a-premier-league" for n in env.events.values())
-    assert "you have tickets" in invoke("upcoming").output
+    out = invoke("upcoming").output
+    assert "Brentford (A)" in out.split("You have tickets")[1].split("Sales to come")[0]
     res = invoke("got", "--undo", "brentford")
     assert "albion import" in res.output
     assert load(Path(cli_mod._state_path())).have_tickets == set()
@@ -279,7 +280,8 @@ def test_cup_tie_with_tickets_in_hand_keeps_its_fixture(env, tmp_path, monkeypat
     assert invoke("import", str(pdf)).exit_code == 0
     assert invoke("got", "monaco").exit_code == 0
     assert any(n.title == "⚽ Albion v AS Monaco" for n in env.events.values())
-    assert "you have tickets" in invoke("upcoming").output
+    out = invoke("upcoming").output
+    assert "AS Monaco (H)" in out.split("You have tickets")[1].split("Sales to come")[0]
 
 
 def test_cup_ties_to_come_fa_cup_and_conference_knockouts(state_path):

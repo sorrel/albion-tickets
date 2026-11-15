@@ -40,3 +40,4 @@ class Match:
     fixture_points: int | None
     url: str
     unreadable: list[str] = field(default_factory=list)
+    on_sale_now: bool = False  # a saved ticket page says so, with no dated stages

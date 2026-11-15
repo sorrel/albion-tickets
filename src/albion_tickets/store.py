@@ -43,6 +43,7 @@ class State:
     failing_runs: int = 0
     export_dir: str | None = None  # where `albion export` copies the history after each check
     last_check: str | None = None  # when a (non-dry) check last read the club's news
+    have_tickets: set[str] = field(default_factory=set)  # match keys: no sale reminders for these
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,7 @@ def load(path: Path) -> State:
             failing_runs=raw.get("failing_runs", 0),
             export_dir=raw.get("export_dir"),
             last_check=raw.get("last_check"),
+            have_tickets=set(raw.get("have_tickets", [])),
         )
     except (ValueError, TypeError, AttributeError) as exc:
         raise StateError(f"{path} is unreadable ({exc}); fix or move it aside — not resetting") from exc
@@ -115,6 +117,7 @@ def save(state: State, path: Path, today: date | None = None) -> None:
         "failing_runs": state.failing_runs,
         "export_dir": state.export_dir,
         "last_check": state.last_check,
+        "have_tickets": sorted(state.have_tickets),
     }
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, indent=1, sort_keys=True))

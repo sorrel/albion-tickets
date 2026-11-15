@@ -33,3 +33,11 @@ English, feature branches only (never commit to `main` directly).
 `payload`/`parse_article`/`parse_stages`/`dates` (article → `Match`) →
 `rules` (`Outcome`) → `store` (history, changes) → `notices` → `calendar_app`
 (`calendar.js` via `osascript`) — wired together in `run.py`, exposed by `cli.py`.
+
+`albion import` is the one way in from the ticket site: the user saves its
+Away/Home Games page as a PDF by hand, `ticket_page` reads it (PDFKit through
+`pdf_text.js`, so no new dependency) and `run.run_import` adds matches marked
+`source: import`. The club's news always wins: import skips anything an
+article tracks, and `run._adopt_import` hands an imported match to its article
+by fixture day. `state.have_tickets` (set by `albion got`) keeps only the
+fixture and kick-off-change notices for a match.

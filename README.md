@@ -25,7 +25,19 @@ morning. It never logs in, never touches the ticket site and never buys.
 | `albion history [--season 2025-26] [--all] [-v]` | A table per season |
 | `albion dismiss <key>` | Clear a "check this" reminder |
 | `albion add <url>` | Track an article older than the news listing shows |
+| `albion import <pdf>… [--dry-run]` | Read ticket pages you saved as PDFs (see below) |
+| `albion got <match> [--undo]` | You already have tickets: no more sale reminders for it |
 | `albion export <folder>` | Copy your history somewhere safe |
+
+### Saved ticket pages
+
+The ticket site lists sale dates weeks before the club's news does. The tool
+never visits that site (it guards against bots, and your season ticket is
+on that account). Instead, open its Away Games or Home Games page in your own
+browser, save it as a PDF, and run `albion import` on the file. Only away
+games and home cup ties are kept. A match already tracked from the news is
+left alone. Once the club publishes the match's ticket news, `albion check`
+takes over the imported match.
 
 Your points and history stay in `data/` on your Mac, with a daily copy in
 `data/backups/`.

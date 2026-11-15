@@ -38,6 +38,7 @@ def export(state: State, data_dir: Path, dest: Path) -> Path:
     out.mkdir(parents=True, exist_ok=True)
     raw = asdict(state)
     raw["dismissed"] = sorted(state.dismissed)
+    raw["have_tickets"] = sorted(state.have_tickets)
     (out / "state.json").write_text(json.dumps(raw, indent=1, sort_keys=True))
 
     seasons: dict[str, list] = {}

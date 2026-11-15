@@ -9,7 +9,8 @@ from datetime import datetime, timedelta
 
 from . import venues
 from .display import day, dim, match_cells, table, title, when
-from .records import SEASON_TICKET
+from .notices import import_due
+from .records import SEASON_TICKET, last_import
 from .rules import sold_out_text
 from .store import MatchRecord, State
 
@@ -115,4 +116,6 @@ def render(state: State, now: datetime) -> str:
         lines = [f"{k}  {dim(f'albion dismiss {k}')}" for k in checks]
         blocks.append("\n".join([title("Check this reminders"), *lines]))
     last = f"Last checked {when(state.last_check)}." if state.last_check else "Not checked yet: run albion check."
+    if (imported := last_import(state)) is not None:
+        last += f"\nTicket pages last imported {day(imported)}; next reminder {day(import_due(imported, now))}."
     return "\n\n".join([*blocks, dim(last)])

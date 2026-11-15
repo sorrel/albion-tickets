@@ -44,6 +44,10 @@ seasons and slugs once (`match_key`, `season_of`, `url_slug`).
   run and prints a JSON result line per change as it goes. Event IDs are
   `calendarItemExternalIdentifier`. JXA wraps ObjC values: compare numbers
   with `Number(…)`, and get `CLLocation` via `NSClassFromString`.
+  Each event's URL is `albion-tickets:<notice key>`, and a create first looks
+  for that key: a write whose reply was lost (run cut short) is updated, never
+  duplicated. `albion tidy` lists or removes events the state doesn't track;
+  older records may hold the local ID (`calendarItemIdentifier`), so both count.
 - **Saved pages:** `ticket_page` reads the Away/Home Games PDF (PDFKit via
   `pdf_text.js`); `importing.run_import` adds matches with `source: import`. The
   club's news wins: import skips matches an article tracks, and

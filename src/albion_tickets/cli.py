@@ -13,7 +13,7 @@ from pathlib import Path
 import click
 
 from . import config
-from .calendar_app import MacCalendar
+from .calendar_app import CalendarError, Change, MacCalendar
 from .calendar_app import remove as remove_event
 from .display import dim, table, title, when
 from .export import export as export_history
@@ -26,7 +26,7 @@ from .records import season_ticket
 from .rules import decide, sold_out_text
 from .run import run_check
 from .store import State, StateError, load, save
-from .sync import Report, silent
+from .sync import Report, silent, untracked
 from .ticket_page import PageResult, PdfError, parse_ticket_page, pdf_text
 from .upcoming import render as render_upcoming
 
@@ -196,6 +196,33 @@ def add(url):
                                     "matches": []})
     save(state, _state_path())
     click.echo("Added. It will be read at the next check.")
+
+
+@cli.command()
+@click.option("--remove", is_flag=True, help="Delete them from the Albion tickets calendar.")
+def tidy(remove):
+    """Find events in the Albion tickets calendar that the tool has lost track of.
+
+    A run cut short can write an event without hearing back, and older runs
+    then wrote it again. Lists them; --remove deletes them (only from this
+    calendar, and only events the tool doesn't track).
+    """
+    state, cal = _load(), make_calendar()
+    lost = untracked(cal, state, datetime.now(config.TZ))
+    if not lost:
+        click.echo("Nothing to tidy: every event in the calendar is tracked.")
+        return
+    click.echo(title(f"{'Removing' if remove else 'Not tracked'} · {_plural(len(lost), 'event')}"))
+    click.echo(table([[when(e.start), e.title] for e in sorted(lost, key=lambda e: e.start)], ["Starts", "Event"]))
+    if not remove:
+        click.echo(dim("Run albion tidy --remove to delete them."))
+        return
+    failed = [f"{e.title}: {r}" for e, r in zip(lost, cal.apply([Change(e.uid) for e in lost]), strict=True)
+              if isinstance(r, CalendarError)]
+    for f in failed:
+        click.echo(f"Error: calendar: {f}", err=True)
+    click.echo(f"Removed {_plural(len(lost) - len(failed), 'event')}.")
+    raise SystemExit(1 if failed else 0)
 
 
 # --- import ------------------------------------------------------------------

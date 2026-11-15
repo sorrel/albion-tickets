@@ -153,3 +153,26 @@ def test_home_league_games_have_their_own_section_and_stay_out_of_history(env):
     sections = _sections(run("upcoming").output)
     assert "Everton (H)" in sections["Season ticket"]
     assert "Everton" not in run("history", "--all").output
+
+
+def test_tidy_lists_then_removes_only_untracked_events(env, monkeypatch):
+    from datetime import datetime, timedelta
+
+    from albion_tickets.calendar_app import Change
+    from albion_tickets.config import TZ
+    from albion_tickets.notices import Notice
+
+    cal = FakeCalendar()
+    monkeypatch.setattr(cli_mod, "make_calendar", lambda: cal)
+    soon = datetime.now(TZ) + timedelta(days=7)
+    kept, lost = cal.apply([Change(None, Notice("fixture:a", "⚽ Hull City v Albion", soon, soon)),
+                            Change(None, Notice("", "Hull City v Albion", soon, soon))])
+    run("points", "184")
+    s = load(env / "state.json")
+    s.events["fixture:a"] = {"uid": kept, "title": "⚽ Hull City v Albion", "start": soon.isoformat()}
+    save(s, env / "state.json")
+
+    listed = run("tidy").output
+    assert "Hull City v Albion" in listed and "⚽" not in listed and list(cal.events) == [kept, lost]
+    assert run("tidy", "--remove").exit_code == 0 and list(cal.events) == [kept]
+    assert "Nothing to tidy" in run("tidy").output

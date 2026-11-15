@@ -7,6 +7,10 @@
 //
 // Safety: only events in the named calendar are ever changed. An ID that turns
 // up in any other calendar is refused, never edited or removed.
+//
+// Each event carries its notice key in its URL (albion-tickets:<key>). Before
+// creating one, the calendar is searched for that key, so a write whose reply
+// was lost (a run cut short) is found and updated, never made twice.
 // Data never goes into the script text, so titles can't break or inject anything.
 ObjC.import('Foundation');
 ObjC.import('EventKit');
@@ -71,6 +75,38 @@ function findEvent(store, cal, uid) {
   return null;
 }
 
+const MARK = 'albion-tickets:';
+const DAY_S = 24 * 3600;
+
+// Our events (in our calendar only) starting between two times, in seconds since 1970.
+function eventsBetween(store, cal, from, to) {
+  const pred = store.predicateForEventsWithStartDateEndDateCalendars(
+    $.NSDate.dateWithTimeIntervalSince1970(from), $.NSDate.dateWithTimeIntervalSince1970(to), $([cal]));
+  return store.eventsMatchingPredicate(pred).js;
+}
+
+function markOf(ev) {
+  return ev.URL && !ev.URL.isNil() ? ev.URL.absoluteString.js : '';
+}
+
+// An event already written for this notice key: within a year either side of
+// its start, as a moved kick-off keeps its key.
+function findByKey(store, cal, key, start) {
+  if (!key) return null;
+  const want = MARK + encodeURIComponent(key);
+  const found = eventsBetween(store, cal, start - 366 * DAY_S, start + 366 * DAY_S)
+    .filter(function (ev) { return markOf(ev) === want; });
+  return found.length ? found[0] : null;
+}
+
+// What `albion tidy` compares with the state: every event in the calendar, both IDs.
+function list(store, cal, req) {
+  return eventsBetween(store, cal, req.from, req.to).map(function (ev) {
+    return { uid: ev.calendarItemExternalIdentifier.js, local: ev.calendarItemIdentifier.js, title: ev.title.js,
+             start: Number(ev.startDate.timeIntervalSince1970), mark: markOf(ev) };
+  });
+}
+
 // A pin for a ground we have no coordinates for, from Maps. null if none in time.
 function lookUp(text) {
   const request = $.MKLocalSearchRequest.alloc.init;
@@ -101,7 +137,7 @@ function setLocation(ev, req) {
 }
 
 function upsert(store, cal, req) {
-  let ev = findEvent(store, cal, req.uid);
+  let ev = findEvent(store, cal, req.uid) || findByKey(store, cal, req.key, req.start / 1000);
   if (!ev) {
     ev = $.EKEvent.eventWithEventStore(store);
     ev.calendar = cal;
@@ -110,6 +146,7 @@ function upsert(store, cal, req) {
   ev.startDate = $.NSDate.dateWithTimeIntervalSince1970(req.start / 1000);
   ev.endDate = $.NSDate.dateWithTimeIntervalSince1970(req.end / 1000);
   ev.notes = req.notes;
+  if (req.key) ev.URL = $.NSURL.URLWithString(MARK + encodeURIComponent(req.key));
   setLocation(ev, req);
   ev.alarms = $();
   req.alarms.forEach(function (mins) { ev.addAlarm($.EKAlarm.alarmWithRelativeOffset(mins * 60)); });
@@ -140,6 +177,7 @@ function run() {
     if (!cal) return emit({ ok: false, error: 'missing' });
     try {
       if (op.op === 'check') return emit({ ok: true, uid: '' });
+      if (op.op === 'list') return emit({ ok: true, uid: '', events: list(store, cal, op) });
       if (op.op === 'remove') return emit({ ok: true, uid: remove(store, cal, op) });
       return emit({ ok: true, uid: upsert(store, cal, op) });
     } catch (e) {

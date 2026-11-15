@@ -13,7 +13,9 @@ import subprocess
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import unquote
 from typing import Protocol
 
 from .notices import Notice
@@ -21,6 +23,7 @@ from .notices import Notice
 SCRIPT = Path(__file__).with_name("calendar.js")
 BASE_TIMEOUT_S = 150  # covers macOS's one-off "allow calendar access?" prompt
 PER_CHANGE_S = 10
+MARK = "albion-tickets:"  # each event's URL: this, then its notice key (see calendar.js)
 
 
 class CalendarError(Exception):
@@ -34,9 +37,20 @@ class Change:
     notice: Notice | None = None
 
 
+@dataclass(frozen=True)
+class Event:
+    """An event found in the calendar, by both its IDs (older records hold the local one)."""
+    uid: str
+    local: str
+    title: str
+    start: datetime
+    key: str  # the notice key it carries, "" for events written before keys were kept
+
+
 class Calendar(Protocol):
     def apply(self, changes: list[Change]) -> list[str | CalendarError]: ...
     def check_ready(self) -> str | None: ...
+    def listing(self, start: datetime, end: datetime) -> list[Event]: ...
 
 
 def alarm_minutes(n: Notice) -> list[int]:
@@ -71,7 +85,9 @@ class FakeCalendar:
                 self.events.pop(c.uid, None)
                 out.append(c.uid)
                 continue
-            uid = c.uid if c.uid in self.events else uuid.uuid4().hex
+            # As calendar.js: the given ID, else an event already carrying this key, else a new one.
+            same_key = next((u for u, n in self.events.items() if n and n.key == c.notice.key), None)
+            uid = c.uid if c.uid in self.events else same_key or uuid.uuid4().hex
             self.events[uid] = c.notice
             self.calls.append(("upsert", c.notice.key))
             out.append(uid)
@@ -80,13 +96,16 @@ class FakeCalendar:
     def check_ready(self) -> str | None:
         return None
 
+    def listing(self, start: datetime, end: datetime) -> list[Event]:
+        return [Event(uid, uid, n.title, n.start, n.key) for uid, n in self.events.items() if n and start <= n.start < end]
+
 
 def _payload(c: Change) -> dict:
     if c.notice is None:
         return {"op": "remove", "uid": c.uid}
     n = c.notice
     return {
-        "op": "upsert", "uid": c.uid, "title": n.title, "notes": n.notes,
+        "op": "upsert", "uid": c.uid, "key": n.key, "title": n.title, "notes": n.notes,
         "start": int(n.start.timestamp() * 1000), "end": int(n.end.timestamp() * 1000),
         "alarms": alarm_minutes(n), "location": n.location, "geo": list(n.geo) if n.geo else None,
     }
@@ -143,6 +162,13 @@ class MacCalendar:
             else:
                 out.append(CalendarError(r.get("error") or "no event ID came back"))
         return out
+
+    def listing(self, start: datetime, end: datetime) -> list[Event]:
+        result = self._run([{"op": "list", "from": start.timestamp(), "to": end.timestamp()}])[0]
+        if not result.get("ok"):
+            raise CalendarError(result.get("error") or "couldn't list the calendar")
+        return [Event(e["uid"], e["local"], e["title"], datetime.fromtimestamp(e["start"], UTC),
+                      unquote(e["mark"].removeprefix(MARK))) for e in result["events"]]
 
     def check_ready(self) -> str | None:
         result = self._run([{"op": "check"}])[0]

@@ -10,10 +10,10 @@ import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from .calendar_app import Calendar, CalendarError, Change
+from .calendar_app import Calendar, CalendarError, Change, Event
 from .display import when
 from .model import url_slug
 from .notices import Notice
@@ -136,3 +136,12 @@ def _removals(state: State, wanted: set[str], owners_ok: set[str]) -> list[tuple
     return [(key, ev) for key, ev in state.events.items()
             if key not in wanted and not ev.get("one_shot") and ev.get("owner") in owners_ok
             and f"check:{ev.get('owner')}" not in wanted]
+
+
+TIDY_FROM, TIDY_TO = timedelta(days=30), timedelta(days=400)  # recent past to the end of next season
+
+
+def untracked(cal: Calendar, state: State, now: datetime) -> list[Event]:
+    """Events in our calendar the state doesn't know: written, but their reply was lost (see `albion tidy`)."""
+    known = {ev["uid"] for ev in state.events.values()}
+    return [e for e in cal.listing(now - TIDY_FROM, now + TIDY_TO) if e.uid not in known and e.local not in known]

@@ -28,6 +28,7 @@ class Notice:
     notes: str = ""
     one_shot: bool = False
     why: str = ""  # for "check this": what the tool couldn't make sense of
+    location: str = ""  # fixture events: the ground
 
 
 def _when(dt: datetime) -> str:

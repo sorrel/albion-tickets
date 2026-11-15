@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from . import venues
 from .dates import at_london, parse_day_date, parse_time
 from .model import Match
 from .parse_article import _competition, _heading, _season, _slug
@@ -49,6 +50,8 @@ ALIASES = {
     "ipswich": "Ipswich Town",
     "norwich": "Norwich City",
     "cardiff": "Cardiff City",
+    "coventry": "Coventry City",
+    "burnley": "Burnley",
     "stoke": "Stoke City",
     "luton": "Luton Town",
     "swansea": "Swansea City",
@@ -132,5 +135,6 @@ def parse_ticket_page(text: str, today: date, source: str) -> PageResult:
             url=source,
             unreadable=unreadable,
             on_sale_now=bool(_ON_SALE.search(body)),
+            venue=venues.from_page(block[after + 1] if after + 1 < len(block) else None, body),
         ))
     return PageResult(matches, skipped)

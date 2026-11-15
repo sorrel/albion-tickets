@@ -44,3 +44,9 @@ fixture and kick-off-change notices for a match.
 The sell-out level a saved page gives is kept in `MatchRecord.page_sold_out`,
 not `summary` (every check rebuilds that): it is the year-on-year record, and
 the club's news often never states it. Read it via `MatchRecord.sold_out_at()`.
+
+Fixture events carry the ground as their location (`venues.location`): the
+built-in `venues.GROUNDS` table first (keep it to this season's Premier
+League plus likely visitors, as "Ground, Town"), then the match's own saved
+page, then `state.venues` (learnt per away opponent from saved pages), and
+the Amex for home games. Update `GROUNDS` each summer when the league changes.

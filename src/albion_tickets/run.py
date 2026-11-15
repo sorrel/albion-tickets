@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Callable
@@ -24,6 +24,7 @@ from .notices import SOON, Notice, change_notices, check_this, notices_for, poin
 from .parse_article import is_tracked, parse_article
 from .rules import Outcome, decide, sold_out_text
 from .store import State, load, observe, save, snapshot
+from . import venues
 from .ticket_page import PageResult
 
 KEEP_TRACKING = timedelta(days=1)
@@ -45,8 +46,10 @@ class Report:
 
 
 def _fingerprint(n: Notice) -> str:
-    raw = json.dumps([n.title, n.start.isoformat(), n.end.isoformat(),
-                      [a.isoformat() for a in n.alarms], n.notes])
+    parts = [n.title, n.start.isoformat(), n.end.isoformat(), [a.isoformat() for a in n.alarms], n.notes]
+    if n.location:  # only when set, so events without one keep their fingerprint
+        parts.append(n.location)
+    raw = json.dumps(parts)
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
@@ -235,7 +238,14 @@ def _match_notices(state: State, m: Match, now: datetime, report: Report) -> lis
     ]
     if m.key in state.have_tickets:
         out = [n for n in out if n.key.split(":", 1)[0] in KEEP_WITH_TICKETS]
-    return out
+    return _located(out, state, m)
+
+
+def _located(notices: list[Notice], state: State, m: Match) -> list[Notice]:
+    """Give the fixture event its ground."""
+    rec = state.matches.get(m.key)
+    where = venues.location(m.opponent, m.home, m.venue or (rec.venue if rec else None), state.venues)
+    return [replace(n, location=where) if n.key.startswith("fixture:") and where else n for n in notices]
 
 
 KEEP_WITH_TICKETS = {"fixture", "kickoff_moved"}  # with a ticket in hand, sale news is noise
@@ -305,7 +315,7 @@ def run_import(cal: Calendar, pages: list[PageResult], state_path: Path, now: da
                 st = m.status
                 page = f"; the page says {sold_out_text(st.sold_out_to)}" if st.sold_out_to else ""
                 report.skipped.append(f"{name}: already tracked from the club's news{page}")
-                _remember_sold_out(state.matches[existing], m, now)
+                _remember_page(state, existing, m, now)
                 continue
             if existing and existing != m.key:
                 state.matches[m.key] = state.matches.pop(existing)
@@ -319,7 +329,7 @@ def run_import(cal: Calendar, pages: list[PageResult], state_path: Path, now: da
             else:  # sold out, or no dates yet: the fixture alone, never a "check this"
                 found = _fixture_only(state, m, now, report)
             notices.extend(found)
-            _remember_sold_out(state.matches[m.key], m, now)
+            _remember_page(state, m.key, m, now)
             report.imported.append(m.key)
     upcoming = sorted((n for n in notices if n.key.startswith("sale:") and n.alarms and n.start > now),
                       key=lambda n: n.start)
@@ -330,7 +340,13 @@ def run_import(cal: Calendar, pages: list[PageResult], state_path: Path, now: da
     return report
 
 
-def _remember_sold_out(rec, m: Match, now: datetime) -> None:
+def _remember_page(state: State, key: str, m: Match, now: datetime) -> None:
+    """Keep what a saved page says that the club's news may not: sell-out level and ground."""
+    rec = state.matches[key]
+    if m.venue:
+        rec.venue = m.venue
+        if not m.home:
+            state.venues[m.opponent] = m.venue
     label = m.status.sold_out_to
     if label and rec.page_sold_out.get("label") != label:
         rec.page_sold_out = {"label": label, "seen": now.isoformat()}
@@ -351,7 +367,7 @@ def _fixture_only(state: State, m: Match, now: datetime, report: Report) -> list
         report.changes.append(f"{m.opponent}: {c.kind.replace('_', ' ')} {c.old} → {c.new}")
     out = [n for n in notices_for(m, Outcome("unreadable", None, None), state.points, now, None, None)
            if n.key.startswith("fixture:")]
-    return out + change_notices(changes, {m.key: m}, now)
+    return _located(out, state, m) + change_notices(changes, {m.key: m}, now)
 
 
 def _owner(key: str, state: State) -> str:

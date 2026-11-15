@@ -1,6 +1,4 @@
 """Dates and times as the club writes them: no years, loose abbreviations."""
-from __future__ import annotations
-
 import re
 from datetime import date, datetime, time
 

@@ -3,10 +3,8 @@
 Each match falls into exactly one section (`section_of`), and each section
 says how its table looks (`SECTIONS`), so the rendering is one loop.
 """
-from __future__ import annotations
-
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from . import venues
@@ -17,7 +15,7 @@ from .store import MatchRecord, State
 SOON = timedelta(days=7)  # a sale this close stands out
 PREDICTED_NOTE = "Predicted: your usual day, until the club announces the points brackets."
 
-Row = Callable[[str, MatchRecord], list[str]]
+type Row = Callable[[str, MatchRecord], list[str]]
 
 
 @dataclass(frozen=True)

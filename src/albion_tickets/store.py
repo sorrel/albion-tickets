@@ -3,8 +3,6 @@
 Everything lives under data/ (gitignored). A corrupt state file stops the run
 rather than being silently reset, which would duplicate every event.
 """
-from __future__ import annotations
-
 import hashlib
 import json
 import os

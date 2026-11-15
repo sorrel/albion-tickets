@@ -12,8 +12,6 @@ The club writes these as prose, one sentence per match:
 This module only reads text. Which tracked match a sentence means is decided
 in run.py, which knows what is tracked.
 """
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -23,7 +21,7 @@ from .dates import _DATE_RE, at_london, parse_day_date, parse_time
 from .parse_article import _competition, _heading
 from .ticket_page import ALIASES, canonical
 
-Side = Literal["home", "away"]
+type Side = Literal["home", "away"]
 
 _HOME = re.compile(r"\b(at home|home (?:game|match|tie|fixture|leg)|welcome|host(?:s|ing)?|"
                    r"(?:at|to) the Amex|American Express Stadium)\b", re.I)

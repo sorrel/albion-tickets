@@ -6,8 +6,6 @@ Premier League, plus recent visitors), then what saved ticket pages have
 taught us (cup ties, European grounds, one-off venues: text only, pinned by
 Maps when the event is written), then the Amex for home games.
 """
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass
 

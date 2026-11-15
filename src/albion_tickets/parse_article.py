@@ -1,6 +1,4 @@
 """A ticket article → the matches it describes."""
-from __future__ import annotations
-
 import re
 from dataclasses import dataclass
 from datetime import date

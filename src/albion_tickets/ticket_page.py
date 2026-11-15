@@ -14,8 +14,6 @@ PDFKit gives each fixture as a block that starts with its date line:
     On Sale Dates:
     STHs/1901 Club Members *: Tue 01 Dec, 9am
 """
-from __future__ import annotations
-
 import re
 import subprocess
 from dataclasses import dataclass

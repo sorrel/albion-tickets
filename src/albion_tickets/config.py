@@ -1,6 +1,4 @@
 """Fixed settings. Nothing personal lives here: the points total is in data/."""
-from __future__ import annotations
-
 import os
 from pathlib import Path
 from zoneinfo import ZoneInfo

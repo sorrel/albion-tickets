@@ -1,6 +1,4 @@
 """Copy the history somewhere safe: the raw state, a CSV per season, the article snapshots."""
-from __future__ import annotations
-
 import csv
 import json
 import shutil

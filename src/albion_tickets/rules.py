@@ -3,9 +3,8 @@
 Status labels ("BUY", "Sold Out") are never trusted on their own: a sell-out
 counts only once the match's first published stage has opened.
 """
-from __future__ import annotations
-
 import re
+from itertools import pairwise
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 from typing import Literal
@@ -14,7 +13,7 @@ from .dates import at_london
 from .model import Match, Stage
 
 PATTERN_NOTE = "Not the usual Tuesday–Friday pattern"
-Kind = Literal["sale", "predicted_sale", "sold_out_before_you", "exchange_open", "unreadable"]
+type Kind = Literal["sale", "predicted_sale", "sold_out_before_you", "exchange_open", "unreadable"]
 
 
 @dataclass(frozen=True)
@@ -42,7 +41,7 @@ def _pattern_note(stages: list[Stage]) -> str | None:
     run = bracketed + [s for s in sth if s.min_points is None][:1]
     expected = [1, 2, 3, 4]  # Tue … Fri
     days = [s.opens.date() for s in run]
-    consecutive = all((b - a).days == 1 for a, b in zip(days, days[1:]))
+    consecutive = all((b - a).days == 1 for a, b in pairwise(days))
     if [d.weekday() for d in days] != expected or not consecutive:
         return PATTERN_NOTE
     return None

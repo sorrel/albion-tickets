@@ -3,8 +3,6 @@
 Widths are always measured on plain text and styling applied afterwards,
 since an ANSI escape takes no columns.
 """
-from __future__ import annotations
-
 from datetime import datetime
 
 import click

@@ -1,11 +1,9 @@
 """The shapes passed between parsing, rules and the calendar."""
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
-Audience = Literal["sth", "myalbion", "guests", "general", "other"]
+type Audience = Literal["sth", "myalbion", "guests", "general", "other"]
 
 
 @dataclass(frozen=True)

@@ -5,8 +5,6 @@ each one means and records it on that match (`MatchRecord.news`). The fixture
 event itself is rebuilt from the record by `run._refresh_fixtures`, or by the
 match's ticket article through `with_news`, so every source agrees.
 """
-from __future__ import annotations
-
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 

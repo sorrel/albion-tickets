@@ -5,14 +5,12 @@ owns it was fetched and read successfully in this very run, and never while a
 "check this" for the same match is open. A failed or partial fetch therefore
 never deletes anything.
 """
-from __future__ import annotations
-
 import hashlib
 import json
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 from urllib.parse import urlsplit
 
 from . import config

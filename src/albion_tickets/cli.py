@@ -1,6 +1,4 @@
 """albion — reminders for Albion away and cup ticket sales."""
-from __future__ import annotations
-
 from datetime import date, datetime
 
 import sys

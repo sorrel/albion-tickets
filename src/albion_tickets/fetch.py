@@ -6,13 +6,12 @@ Never raises: failures come back as a FetchResult with an error string.
 Any host other than the main website is refused before the network is touched,
 so the protected ticket site can never be requested by this tool.
 """
-from __future__ import annotations
-
 import time
 import urllib.error
 import urllib.request
 import urllib.robotparser
 from dataclasses import dataclass
+from functools import cache
 from urllib.parse import urlsplit
 
 from . import config
@@ -44,20 +43,19 @@ class SameSiteRedirects(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-_robots: urllib.robotparser.RobotFileParser | None = None
+@cache
+def _robots() -> urllib.robotparser.RobotFileParser:
+    """The site's robots.txt, read once per run (unreadable: everything allowed)."""
+    parser = urllib.robotparser.RobotFileParser(config.BASE_URL + "/robots.txt")
+    try:
+        parser.read()
+    except Exception:
+        parser.allow_all = True
+    return parser
 
 
 def robots_allows(url: str) -> bool:
-    global _robots
-    if _robots is None:
-        parser = urllib.robotparser.RobotFileParser()
-        parser.set_url(config.BASE_URL + "/robots.txt")
-        try:
-            parser.read()
-        except Exception:
-            parser.allow_all = True
-        _robots = parser
-    return _robots.can_fetch(config.USER_AGENT, url)
+    return _robots().can_fetch(config.USER_AGENT, url)
 
 
 BACKOFF_S = (5, 15, 45)  # waits between tries; one more try than waits
@@ -118,15 +116,16 @@ def fetch(url: str) -> FetchResult:
 
 def polite_fetcher():
     """A fetch function that waits REQUEST_PAUSE_S between requests."""
-    last = [0.0]
+    last = 0.0
 
     def _fetch(url: str) -> FetchResult:
-        wait = config.REQUEST_PAUSE_S - (time.monotonic() - last[0])
+        nonlocal last
+        wait = config.REQUEST_PAUSE_S - (time.monotonic() - last)
         if wait > 0:
             time.sleep(wait)
         try:
             return fetch(url)
         finally:
-            last[0] = time.monotonic()
+            last = time.monotonic()
 
     return _fetch

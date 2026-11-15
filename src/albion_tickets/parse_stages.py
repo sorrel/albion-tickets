@@ -1,6 +1,4 @@
 """Sale-stage lines and sell-out wording, as the club writes them."""
-from __future__ import annotations
-
 import re
 from datetime import date
 

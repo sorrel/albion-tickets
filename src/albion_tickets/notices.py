@@ -4,8 +4,6 @@ Every time here is anchored to when the tool first *saw* something, never to
 the current run, so re-running every two hours produces identical notices and
 never re-fires an alert.
 """
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 

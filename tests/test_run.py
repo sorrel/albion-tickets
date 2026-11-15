@@ -56,8 +56,8 @@ def test_end_to_end_creates_sale_fixture_and_points_events(state_path):
     cal = FakeCalendar()
     report = run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
     titles = {n.key.split(":")[0] + ":" + n.title for n in cal.events.values()}
-    assert "fixture:Fulham v Albion" in titles
-    assert "fixture:Tottenham Hotspur v Albion" in titles
+    assert "fixture:⚽ Fulham v Albion" in titles
+    assert "fixture:⚽ Tottenham Hotspur v Albion" in titles
     # NOW is the evening of Fri 13 Nov: the Fulham and Spurs sales are over, and no points are due yet
     assert not any(t.startswith("sale:") for t in titles)
     assert not any(t.startswith("points:") for t in titles)
@@ -92,7 +92,7 @@ def test_changed_article_moves_event_and_adds_change_notice(state_path):
     url = ART + "fulham-ticket-information"
     table[url] = table[url].replace("Saturday 26 December - kick-off 3pm", "Sunday 27 December - kick-off 12:30pm")
     report = run_check(cal, Fetcher(table), state_path, NOW.replace(hour=22), dry_run=False)
-    fixture = next(n for n in cal.events.values() if n.title == "Fulham v Albion")
+    fixture = next(n for n in cal.events.values() if n.title == "⚽ Fulham v Albion")
     assert fixture.start == datetime(2026, 12, 27, 12, 30, tzinfo=TZ)
     moved = [n for n in cal.events.values() if n.key.startswith("kickoff_moved:")]
     assert len(moved) == 1 and moved[0].title == "⚠️ Fulham: kick-off moved Sat 26 Dec 3pm → Sun 27 Dec 12.30pm"
@@ -156,7 +156,7 @@ def test_added_url_is_fetched(state_path):
     table[extra] = page("article-bournemouth-and-nottingham-forest-ticket-information.html.gz")
     cal = FakeCalendar()
     run_check(cal, Fetcher(table), state_path, NOW, dry_run=False)
-    assert any(n.title == "Nottingham Forest v Albion" for n in cal.events.values())
+    assert any(n.title == "⚽ Nottingham Forest v Albion" for n in cal.events.values())
 
 
 def test_snapshot_of_article_text_written_on_real_run(state_path):

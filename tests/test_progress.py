@@ -99,7 +99,7 @@ def test_report_lines_lead_with_the_event_date(tmp_path, monkeypatch):
     assert report.created
     for line in report.created:
         assert re.match(r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2} [A-Z][a-z]{2} \d{2}:\d{2} · ", line), line
-    assert any(l.endswith("· Fulham v Albion") for l in report.created)
+    assert any(l.endswith("· ⚽ Fulham v Albion") for l in report.created)
 
 
 def _cli(tmp_path, monkeypatch, *args):
@@ -122,7 +122,7 @@ def test_check_summary_is_a_few_lines(tmp_path, monkeypatch):
 
 def test_check_verbose_lists_every_event_with_its_date(tmp_path, monkeypatch):
     r = _cli(tmp_path, monkeypatch, "--dry-run", "--verbose")
-    assert re.search(r"^  \w{3} 26 Dec 15:00 · Fulham v Albion$", r.stdout, re.M)
+    assert re.search(r"^  \w{3} 26 Dec 15:00 · ⚽ Fulham v Albion$", r.stdout, re.M)
 
 
 def test_cli_import_progress_flag_reviews_each_file(tmp_path, monkeypatch):

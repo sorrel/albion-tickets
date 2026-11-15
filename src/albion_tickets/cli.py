@@ -42,7 +42,7 @@ def _fmt(iso: str | None) -> str:
     if not iso:
         return "—"
     dt = datetime.fromisoformat(iso)
-    return f"{dt:%a} {dt.day} {dt:%b %H:%M}"
+    return f"{dt:%a} {dt:%d %b %H:%M}"
 
 
 @click.group()
@@ -207,7 +207,7 @@ def _day(iso: str | None) -> str:
     if not iso:
         return "—"
     dt = datetime.fromisoformat(iso).astimezone(config.TZ)
-    return f"{dt:%a} {dt.day} {dt:%b}"
+    return f"{dt:%a} {dt:%d %b}"
 
 
 def _tier(label: str | None) -> str:
@@ -217,7 +217,12 @@ def _tier(label: str | None) -> str:
     m = re.search(r"(\d+)\s*\+", label)
     if m:
         return f"{m.group(1)}+"
-    if "myalbion" in label.lower():
+    low = label.lower()
+    if "general sale" in low:  # the widest group named is where it ran out
+        return "General sale"
+    if "purchase history" in low:
+        return "Purchase history"
+    if "myalbion" in low:
         return "MyAlbion+"
     if re.search(r"STH|1901", label, re.I):
         return "All STHs"

@@ -160,8 +160,8 @@ def test_article_takes_over_an_import_under_another_name(state_path, monkeypatch
     assert "2026-27-spurs-a-premier-league" not in state.matches
     assert "source" not in state.matches["2026-27-tottenham-hotspur-a-premier-league"].summary
     fixtures = [n.title for n in cal.events.values() if n.key.startswith("fixture:")]
-    assert fixtures.count("Tottenham Hotspur v Albion") == 1
-    assert "Spurs v Albion" not in fixtures
+    assert fixtures.count("⚽ Tottenham Hotspur v Albion") == 1
+    assert "⚽ Spurs v Albion" not in fixtures
 
 
 def test_checks_leave_imported_events_alone(state_path):
@@ -278,7 +278,7 @@ def test_cup_tie_with_tickets_in_hand_keeps_its_fixture(env, tmp_path, monkeypat
     pdf.write_bytes(b"%PDF")
     assert invoke("import", str(pdf)).exit_code == 0
     assert invoke("got", "monaco").exit_code == 0
-    assert any(n.title == "Albion v AS Monaco" for n in env.events.values())
+    assert any(n.title == "⚽ Albion v AS Monaco" for n in env.events.values())
     assert "you have tickets" in invoke("upcoming").output
 
 
@@ -298,4 +298,4 @@ def test_cup_ties_to_come_fa_cup_and_conference_knockouts(state_path):
     state = load(state_path)
     assert "2026-27-tbc-a-fa-cup" not in state.matches and "2026-27-wrexham-a-fa-cup" in state.matches
     titles = [n.title for n in cal.events.values() if n.key.startswith("fixture:")]
-    assert "TBC v Albion" not in titles and titles.count("Wrexham v Albion") == 1
+    assert "⚽ TBC v Albion" not in titles and titles.count("⚽ Wrexham v Albion") == 1

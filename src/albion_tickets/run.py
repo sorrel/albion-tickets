@@ -22,8 +22,9 @@ from .fetch import FetchResult
 from .model import Match
 from .notices import SOON, Notice, change_notices, check_this, notices_for, points_due
 from .parse_article import is_tracked, parse_article
-from .rules import decide
+from .rules import Outcome, decide
 from .store import State, load, observe, save, snapshot
+from .ticket_page import PageResult
 
 KEEP_TRACKING = timedelta(days=1)
 FORGET_EMPTY_ARTICLE = timedelta(days=30)
@@ -39,6 +40,8 @@ class Report:
     errors: list[str] = field(default_factory=list)
     next_sale: str | None = None
     needs_look: list[str] = field(default_factory=list)
+    imported: list[str] = field(default_factory=list)  # match keys an import added or refreshed
+    skipped: list[str] = field(default_factory=list)  # "<what>: <why>" for everything an import left alone
 
 
 def _fingerprint(n: Notice) -> str:
@@ -196,6 +199,7 @@ def _read_article(state: State, url: str, info: dict, fetcher, now: datetime, dr
 
     for m in article.matches:
         if is_tracked(m):
+            _adopt_import(state, m, owners_ok)
             owners_ok.add(m.key)
             notices.extend(_match_notices(state, m, now, report))
 
@@ -224,11 +228,119 @@ def _match_notices(state: State, m: Match, now: datetime, report: Report) -> lis
     }
     for c in changes:
         report.changes.append(f"{m.opponent}: {c.kind.replace('_', ' ')} {c.old} → {c.new}")
-    return [
+    out = [
         *notices_for(m, outcome, state.points, now, _dt(rec.stage_opens.get("seen")),
                      _dt(rec.first_sold_out_seen), _dt(rec.first_problem)),
         *change_notices(changes, {m.key: m}, now),
     ]
+    if m.key in state.have_tickets:
+        out = [n for n in out if n.key.split(":", 1)[0] in KEEP_WITH_TICKETS]
+    return out
+
+
+KEEP_WITH_TICKETS = {"fixture", "kickoff_moved"}  # with a ticket in hand, sale news is noise
+
+
+def same_fixture(state: State, m: Match) -> str | None:
+    """The key of a recorded match on the same day, at the same end, as m."""
+    if m.kickoff is None:
+        return None
+    for key, rec in state.matches.items():
+        if (rec.kickoffs and rec.summary.get("home") == m.home
+                and datetime.fromisoformat(rec.kickoffs[-1][0]).date() == m.kickoff.date()):
+            return key
+    return None
+
+
+def _adopt_import(state: State, m: Match, owners_ok: set[str]) -> None:
+    """The club's article now covers a match first seen on a saved ticket page.
+
+    Names differ between the two ("Spurs" / "Tottenham Hotspur"), so the match
+    is found by its day. Its record moves to the article's key, keeping its
+    first-seen times, and the import's events are retired: the article's
+    notices replace them in this same run.
+    """
+    if m.key in state.matches:
+        return
+    old = same_fixture(state, m)
+    if old is None or state.matches[old].summary.get("source") != "import":
+        return
+    state.matches[m.key] = state.matches.pop(old)
+    owners_ok.add(old)
+    if old in state.have_tickets:
+        state.have_tickets.discard(old)
+        state.have_tickets.add(m.key)
+
+
+def run_import(cal: Calendar, pages: list[PageResult], state_path: Path, now: datetime,
+               dry_run: bool) -> Report:
+    """Matches from ticket pages the user saved by hand → records and calendar events.
+
+    The club's news stays in charge: a match already tracked from an article is
+    left alone. Nothing is ever removed here, so an import can only add.
+    """
+    report = Report()
+    problem = cal.check_ready()
+    if problem:
+        report.errors.append(problem)
+        return report
+    state = load(state_path)
+    if state.points is None:
+        report.errors.append("Set your points first: albion points <n>")
+        return report
+    notices: list[Notice] = []
+    retired: set[str] = set()  # old keys of records renamed here: their events give way to the new ones
+    for page in pages:
+        report.skipped.extend(f"{s}: not a match" for s in page.skipped)
+        for m in page.matches:
+            name = f"{m.opponent} ({'H' if m.home else 'A'})"
+            if not is_tracked(m):
+                continue  # home league games: the season ticket covers them
+            if m.kickoff is not None and m.kickoff < now:
+                report.skipped.append(f"{name}: already played")
+                continue
+            existing = m.key if m.key in state.matches else same_fixture(state, m)
+            if existing and state.matches[existing].summary.get("source") != "import":
+                report.skipped.append(f"{name}: already tracked from the club's news")
+                continue
+            if existing and existing != m.key:
+                state.matches[m.key] = state.matches.pop(existing)
+                retired.add(existing)
+                if existing in state.have_tickets:
+                    state.have_tickets.discard(existing)
+                    state.have_tickets.add(m.key)
+            if m.stages:
+                found = _match_notices(state, m, now, report)
+                state.matches[m.key].summary["source"] = "import"
+            else:  # sold out, or no dates yet: the fixture alone, never a "check this"
+                found = _fixture_only(state, m, now, report)
+            notices.extend(found)
+            report.imported.append(m.key)
+    upcoming = sorted((n for n in notices if n.key.startswith("sale:") and n.alarms and n.start > now),
+                      key=lambda n: n.start)
+    report.next_sale = upcoming[0].title if upcoming else None
+    _sync(cal, state, notices, retired, dry_run, report)
+    if not dry_run:
+        save(state, state_path)
+    return report
+
+
+def _fixture_only(state: State, m: Match, now: datetime, report: Report) -> list[Notice]:
+    changes = observe(state, m, None, now)
+    rec = state.matches[m.key]
+    st = m.status
+    sold = st.sold_out_label_seen or st.sold_out_to is not None
+    rec.summary = {
+        "opponent": m.opponent, "home": m.home, "competition": m.competition, "url": m.url,
+        "kind": "sold_out" if sold else "on_sale" if m.on_sale_now else "no_dates", "opens": None,
+        "sold_out_stage": st.sold_out_to, "kickoff_confirmed": m.kickoff_confirmed,
+        "worth": m.fixture_points, "stages": [], "your_stage": None, "source": "import",
+    }
+    for c in changes:
+        report.changes.append(f"{m.opponent}: {c.kind.replace('_', ' ')} {c.old} → {c.new}")
+    out = [n for n in notices_for(m, Outcome("unreadable", None, None), state.points, now, None, None)
+           if n.key.startswith("fixture:")]
+    return out + change_notices(changes, {m.key: m}, now)
 
 
 def _owner(key: str, state: State) -> str:

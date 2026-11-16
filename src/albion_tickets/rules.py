@@ -33,7 +33,7 @@ def _users_stage(stages: list[Stage], points: int) -> Stage | None:
     return None
 
 
-def _pattern_note(stages: list[Stage]) -> str | None:
+def pattern_note(stages: list[Stage]) -> str | None:
     sth = [s for s in stages if s.audience == "sth" and not s.brackets_pending]
     bracketed = [s for s in sth if s.min_points is not None]
     if not bracketed:
@@ -107,7 +107,7 @@ def decide(m: Match, points: int, now: datetime, first_sold_out_seen: datetime |
     mine = _users_stage(m.stages, points)
     if mine is None:
         return Outcome("unreadable", None, None)
-    note = _pattern_note(m.stages)
+    note = pattern_note(m.stages)
 
     st = m.status
     seen = first_sold_out_seen or now

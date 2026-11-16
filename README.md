@@ -4,8 +4,9 @@
 
 Away tickets are released in stages by loyalty points over one week, and it's
 easy to miss your morning. This reads the club's public ticket news and puts
-**your** sale day in a calendar, with alerts the evening before and that
-morning. It never logs in, never touches the ticket site and never buys.
+**your** sale day in a calendar, with alerts at 7pm a week, two days and one
+day before, then half an hour and five minutes before it opens. It never logs
+in, never touches the ticket site and never buys.
 
 ## Setup
 

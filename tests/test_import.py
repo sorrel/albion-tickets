@@ -179,6 +179,60 @@ def test_checks_leave_imported_events_alone(state_path):
     assert any(n.key == "sale:2026-27-brentford-a-premier-league" for n in cal.events.values())
 
 
+def sales(cal):
+    return {n.key: n for n in cal.events.values() if n.key.startswith("sale:")}
+
+
+def test_a_check_rebuilds_imported_sales_unchanged(state_path):
+    cal = FakeCalendar()
+    run_import(cal, [away()], state_path, NOW, dry_run=False)
+    before = sales(cal)
+    report = run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
+    assert sales(cal) == before
+    assert not any(k.startswith("sale:") for k in report.updated)
+
+
+def test_records_from_before_the_pattern_note_was_kept_rebuild_unchanged(state_path):
+    cal = FakeCalendar()
+    run_import(cal, [away()], state_path, NOW, dry_run=False)
+    s = load(state_path)
+    for rec in s.matches.values():
+        rec.summary.pop("pattern_note", None)
+        for st in rec.summary.get("stages", []):
+            st.pop("time_assumed", None)
+    save(s, state_path)
+    before = sales(cal)
+    assert "Not the usual Tuesday–Friday pattern" in before["sale:2026-27-newcastle-united-a-premier-league"].notes
+    run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
+    assert sales(cal) == before
+
+
+def test_a_check_brings_imported_sales_up_to_date(state_path, monkeypatch):
+    """A change in how sale events look reaches saved-page matches without a fresh import."""
+    from albion_tickets import notices
+    real = notices._sale_alarms
+    monkeypatch.setattr(notices, "_sale_alarms", lambda opens, seen: real(opens, seen)[-1:])
+    cal = FakeCalendar()
+    run_import(cal, [away()], state_path, NOW, dry_run=False)
+    monkeypatch.setattr(notices, "_sale_alarms", real)
+    run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
+    brentford = sales(cal)["sale:2026-27-brentford-a-premier-league"]
+    assert brentford.alarms[0] == datetime(2026, 11, 27, 19, 0, tzinfo=TZ)  # a week before, at 7pm
+    assert len(brentford.alarms) == 5
+
+
+def test_a_check_brings_back_no_sale_reminder_once_tickets_are_in_hand(state_path):
+    cal = FakeCalendar()
+    run_import(cal, [away()], state_path, NOW, dry_run=False)
+    s = load(state_path)
+    s.have_tickets.add("2026-27-brentford-a-premier-league")  # as albion got does
+    del cal.events[s.events.pop("sale:2026-27-brentford-a-premier-league")["uid"]]
+    save(s, state_path)
+    run_check(cal, Fetcher(pages()), state_path, NOW, dry_run=False)
+    assert "sale:2026-27-brentford-a-premier-league" not in sales(cal)
+    assert "fixture:2026-27-brentford-a-premier-league" in {n.key for n in cal.events.values()}
+
+
 def test_tickets_in_hand_drop_sale_reminders_but_keep_the_fixture(state_path):
     s = load(state_path)
     s.have_tickets.add("2026-27-brentford-a-premier-league")
@@ -252,7 +306,7 @@ def test_cli_got_removes_reminders_and_undo_restores_the_mark(env, tmp_path):
     out = invoke("upcoming").output
     assert "Brentford (A)" in out.split("You have tickets")[1].split("Sales to come")[0]
     res = invoke("got", "--undo", "brentford")
-    assert "albion import" in res.output
+    assert "Reminders return at the next albion check." in res.output
     assert load(Path(cli_mod._state_path())).have_tickets == set()
 
 

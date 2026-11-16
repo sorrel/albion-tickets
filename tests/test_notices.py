@@ -29,10 +29,25 @@ def test_sale_alarms_evening_and_morning():
     ns = kinds(notices_for(brentford(), o, 184, at(11, 20), sale_seen=at(11, 20), sold_out_seen=None))
     sale = ns["sale"]
     assert sale.start == at(12, 4) and sale.end == at(12, 4, 9, 15)
-    assert sale.alarms == [at(12, 3, 19), at(12, 4, 8, 30), at(12, 4, 8, 55)]
+    assert sale.alarms == [at(11, 27, 19), at(12, 2, 19), at(12, 3, 19), at(12, 4, 8, 30), at(12, 4, 8, 55)]
     assert sale.title == "🎟️ Brentford away: your sale Fri 4 Dec 9am (All STHs/1901 Club members, you have 184)"
     assert "time assumed 9am" in sale.notes and "STHs/1901 Club members with 290+pts" in sale.notes
     assert not sale.one_shot
+
+
+def test_afternoon_sale_morning_alarms_follow_opening_time():
+    o = Outcome("sale", FRI, at(12, 4, 14))
+    (sale,) = [n for n in notices_for(brentford(), o, 184, at(11, 20), sale_seen=at(11, 20), sold_out_seen=None)
+               if n.key.startswith("sale:")]
+    assert sale.alarms[-2:] == [at(12, 4, 13, 30), at(12, 4, 13, 55)]
+
+
+def test_sale_found_days_ahead_keeps_only_alarms_still_to_come():
+    o = Outcome("sale", FRI, at(12, 4))
+    seen = at(12, 1, 12)
+    (sale,) = [n for n in notices_for(brentford(), o, 184, seen, sale_seen=seen, sold_out_seen=None)
+               if n.key.startswith("sale:")]
+    assert sale.alarms == [at(12, 2, 19), at(12, 3, 19), at(12, 4, 8, 30), at(12, 4, 8, 55)]
 
 
 def test_late_found_sale_gets_immediate_alarm():

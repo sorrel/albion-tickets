@@ -6,9 +6,9 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta
 
 from . import news_updates, venues
-from .model import Match, Status
+from .model import Match, Stage, Status
 from .notices import Notice, change_notices, fixture, notices_for, points_due
-from .rules import decide
+from .rules import PATTERN_NOTE, Outcome, decide, pattern_note
 from .store import Change, MatchRecord, State, observe
 from .sync import Report
 
@@ -47,7 +47,7 @@ def match_notices(state: State, m: Match, now: datetime, report: Report,
         rec.stage_opens = {"value": outcome.opens.isoformat(), "seen": now.isoformat()}
     rec.first_problem = (rec.first_problem or now.isoformat()) if outcome.kind == "unreadable" else None
     rec.summary = summary(m, outcome.kind, outcome.opens, outcome.sold_out_stage,
-                          outcome.stage.label if outcome.stage else None)
+                          outcome.stage.label if outcome.stage else None, outcome.pattern_note)
     report.changes.extend(described(changes, m))
     out = [*notices_for(m, outcome, state.points, now, _dt(rec.stage_opens.get("seen")),
                         _dt(rec.first_sold_out_seen), _dt(rec.first_problem)),
@@ -74,13 +74,17 @@ def fixture_only(state: State, m: Match, now: datetime, report: Report) -> list[
 
 
 def summary(m: Match, kind: str, opens: datetime | None, sold_out_stage: str | None,
-            your_stage: str | None) -> dict:
-    """What the record keeps of the latest reading: rebuilt every time the match is read."""
+            your_stage: str | None, note: str | None = None) -> dict:
+    """What the record keeps of the latest reading: rebuilt every time the match is read.
+
+    It holds enough to rebuild the sale event (`refresh_sales`) without the page.
+    """
     return {"opponent": m.opponent, "home": m.home, "competition": m.competition, "url": m.url,
             "kind": kind, "opens": opens.isoformat() if opens else None, "sold_out_stage": sold_out_stage,
             "kickoff_confirmed": m.kickoff_confirmed, "worth": m.fixture_points, "your_stage": your_stage,
+            "pattern_note": note,
             "stages": [{"label": st.label, "opens": st.opens.isoformat(), "min_points": st.min_points,
-                        "pending": st.brackets_pending} for st in m.stages]}
+                        "pending": st.brackets_pending, "time_assumed": st.time_assumed} for st in m.stages]}
 
 
 def described(changes: list[Change], m: Match) -> list[str]:
@@ -128,6 +132,47 @@ def refresh_fixtures(state: State, notices: list[Notice], owners_ok: set[str], n
             m = as_match(key, rec)
             out.extend(located(fixture(m), state, m))
     return out
+
+
+SALE_KINDS = ("sale", "predicted_sale")
+
+
+def refresh_sales(state: State, notices: list[Notice], now: datetime) -> list[Notice]:
+    """Sale events of saved-page matches, rebuilt from their records while the sale is ahead.
+
+    No article reads these, so without this a change in how sale events look
+    (their alerts, say) would wait for the next `albion import`. The outcome
+    is the one the import decided; only the event is drawn again.
+    """
+    produced = {n.key for n in notices}
+    out: list[Notice] = []
+    for key, rec in state.matches.items():
+        s = rec.summary
+        if (not from_page(rec) or f"sale:{key}" in produced or key in state.have_tickets
+                or s.get("kind") not in SALE_KINDS or not s.get("opens")):
+            continue
+        opens = datetime.fromisoformat(s["opens"])
+        # The audience is never consulted here (no decide): only labels and times reach the event.
+        stages = [Stage(st["label"], "sth", st.get("min_points"), st.get("pending", False),
+                        datetime.fromisoformat(st["opens"]), st.get("time_assumed", False))
+                  for st in s.get("stages", [])]
+        mine = next((st for st in stages if st.label == s.get("your_stage")), None)
+        if opens <= now or mine is None:
+            continue
+        m = replace(as_match(key, rec), stages=stages)
+        outcome = Outcome(s["kind"], mine, opens, pattern_note=_stored_pattern_note(s, mine, stages))
+        out.extend(n for n in notices_for(m, outcome, state.points, now, _dt(rec.stage_opens.get("seen")), None)
+                   if n.key == f"sale:{key}")
+    return out
+
+
+def _stored_pattern_note(s: dict, mine: Stage, stages: list[Stage]) -> str | None:
+    """The record's pattern note; records from before it was kept work it out as `decide` did."""
+    if "pattern_note" in s:
+        return s["pattern_note"]
+    if s["kind"] == "predicted_sale" and mine.opens.weekday() != 1:  # not the usual Tuesday
+        return PATTERN_NOTE
+    return pattern_note(stages)
 
 
 def points_reminders(state: State, now: datetime) -> list[Notice]:

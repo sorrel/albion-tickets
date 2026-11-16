@@ -124,9 +124,13 @@ def _sale(m: Match, o: Outcome, points: int, seen: datetime, notes: str) -> Noti
 
 
 def _sale_alarms(opens: datetime, seen: datetime) -> list[datetime]:
-    """The evening before at 7pm, then 8.30 and 8.55 on the day: those still ahead when first seen."""
-    wanted = [at_london(opens.date() - timedelta(days=1), time(19, 0)),
-              opens.replace(hour=8, minute=30), opens.replace(hour=8, minute=55)]
+    """7pm a week, two days and one day before, then 30 and 5 minutes before it opens.
+
+    Only those still ahead when the sale was first seen; one found too late for
+    any of them rings two minutes after it was seen.
+    """
+    evenings = [at_london(opens.date() - timedelta(days=d), time(19, 0)) for d in (7, 2, 1)]
+    wanted = [*evenings, opens - timedelta(minutes=30), opens - timedelta(minutes=5)]
     return [a for a in wanted if seen <= a < opens] or [seen + NOW_ALARM]
 
 

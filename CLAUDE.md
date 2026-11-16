@@ -54,6 +54,9 @@ seasons and slugs once (`match_key`, `season_of`, `url_slug`).
   `records.adopt_import` hands an imported match to its article by fixture day.
   `state.last_import` drives one event (`IMPORT_KEY`) asking for fresh pages
   three weeks on at 7pm, then weekly until done; each import moves it on.
+  Each check rebuilds their sale events from the record
+  (`records.refresh_sales`), so a change in how sale events look needs no
+  fresh import.
 - **Records:** `MatchRecord.summary` is rebuilt every check. What only a saved
   page gives lives beside it: `page_sold_out` (the year-on-year sell-out
   level, read via `sold_out_at()`) and `venue`. `state.have_tickets`

@@ -332,8 +332,7 @@ def got(match, undo):
     if undo:
         state.have_tickets.discard(key)
         save(state, _state_path())
-        again = "albion import (with the saved page)" if rec.summary.get("source") == "import" else "albion check"
-        click.echo(f"{rec.opponent}: no longer marked as having tickets. Reminders return at the next {again}.")
+        click.echo(f"{rec.opponent}: no longer marked as having tickets. Reminders return at the next albion check.")
         return
     state.have_tickets.add(key)
     cal = make_calendar()

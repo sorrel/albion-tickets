@@ -268,6 +268,9 @@ def env(state_path, monkeypatch):
     cal = FakeCalendar()
     monkeypatch.setattr(cli_mod, "make_calendar", lambda: cal)
     monkeypatch.setattr(cli_mod, "pdf_text", lambda path: AWAY)
+    # Pin the clock: import leaves out matches already played, so the real
+    # date would shrink the fixture list as the season goes on.
+    monkeypatch.setattr(cli_mod, "_now", lambda: datetime(2026, 11, 13, 12, tzinfo=TZ))
     return cal
 
 

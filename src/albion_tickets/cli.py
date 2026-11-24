@@ -1,7 +1,7 @@
 """albion — reminders for Albion away and cup ticket sales.
 
 Commands only: the work is in run (check), importing (import), upcoming and
-history. make_calendar, make_fetcher, pdf_text and _today are looked up here
+history. make_calendar, make_fetcher, pdf_text, _now and _today are looked up here
 at call time so tests can swap them.
 """
 import sys
@@ -39,8 +39,12 @@ def make_fetcher():
     return polite_fetcher()
 
 
+def _now() -> datetime:
+    return datetime.now(config.TZ)
+
+
 def _today() -> date:
-    return datetime.now(config.TZ).date()
+    return _now().date()
 
 
 def _state_path() -> Path:
@@ -112,7 +116,7 @@ def cli(ctx):
 def check(dry_run, show_progress, verbose):
     """Read the club's ticket news and update the calendar."""
     with _progress(show_progress) as progress:
-        report = run_check(make_calendar(), make_fetcher(), _state_path(), datetime.now(config.TZ), dry_run,
+        report = run_check(make_calendar(), make_fetcher(), _state_path(), _now(), dry_run,
                            progress)
     click.echo(_calendar_line(report, dry_run))
     click.echo(f"Next sale: {report.next_sale}" if report.next_sale else "No sales for you coming up yet.")
@@ -146,7 +150,7 @@ def points(n):
 @cli.command()
 def upcoming():
     """Matches to come: tickets you have, sales to come, and what has sold out."""
-    click.echo(render_upcoming(_load(), datetime.now(config.TZ)))
+    click.echo(render_upcoming(_load(), _now()))
 
 
 @cli.command()
@@ -208,7 +212,7 @@ def tidy(remove):
     calendar, and only events the tool doesn't track).
     """
     state, cal = _load(), make_calendar()
-    lost = untracked(cal, state, datetime.now(config.TZ))
+    lost = untracked(cal, state, _now())
     if not lost:
         click.echo("Nothing to tidy: every event in the calendar is tracked.")
         return
@@ -243,7 +247,7 @@ def import_(files, dry_run, show_progress):
     Away games and home cup ties get sale reminders; home league games (the
     season ticket covers them) only their fixture.
     """
-    now = datetime.now(config.TZ)
+    now = _now()
     with _progress(show_progress) as progress:
         pages = [_read_page(f, i, len(files), now, progress) for i, f in enumerate(files, 1)]
         report = run_import(make_calendar(), pages, _state_path(), now, dry_run, progress)
@@ -308,7 +312,7 @@ def _find_match(state: State, query: str) -> str:
     """A match key, or the one upcoming match whose opponent contains `query`."""
     if query in state.matches:
         return query
-    now = datetime.now(config.TZ)
+    now = _now()
     hits = [k for k, rec in state.matches.items()
             if query.lower() in rec.summary.get("opponent", k).lower() and not (rec.kickoff and rec.kickoff < now)]
     if not hits:
